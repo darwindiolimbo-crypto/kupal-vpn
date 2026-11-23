@@ -84,6 +84,8 @@ class KupalVpnService : VpnService() {
             } else false
         }
         method.invoke(null, callback)
+        val setDns = clazz.methods.firstOrNull { it.name == "setDNS" && it.parameterTypes.size == 2 } ?: error("libXray DNS API is missing")
+        setDns.invoke(null, callback, "1.1.1.1:53")
         val setDns = clazz.methods.firstOrNull { it.name == "setDNS" && it.parameterTypes.size == 2 }
             ?: error("libXray DNS protection API is missing")
         setDns.invoke(null, callback, "1.1.1.1:53")
@@ -126,6 +128,7 @@ class KupalVpnService : VpnService() {
             } catch (dnsError: Exception) {
                 Log.w(TAG, "Could not reset Xray DNS resolver", dnsError)
             }
+            coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null)
             tun?.close()
             tun = null
             setState("disconnected")
