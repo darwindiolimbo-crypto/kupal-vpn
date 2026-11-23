@@ -6,14 +6,15 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/kupal_launcher"
+        android:roundIcon="@mipmap/kupal_launcher"
         android:label="Kupal VPN"
         android:supportsRtl="true"
         android:theme="@style/Theme.KupalVPN">
 
-        <!-- Google's sample App ID. Replace with your own AdMob App ID before release. -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-9471897591250086~3475722796" />
 
         <service
             android:name=".KupalVpnService"
