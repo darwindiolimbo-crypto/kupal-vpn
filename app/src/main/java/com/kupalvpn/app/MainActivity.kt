@@ -366,63 +366,143 @@ fun SectionCard(title: String, content: @Composable () -> Unit) {
 private fun ConfigScreen(padding: PaddingValues) {
     val context = LocalContext.current
     val profileId = ProfileStore.activeProfileId(context)
-    var jsonText by rememberSaveable(profileId) { mutableStateOf(LocalStore.readJson(context)) }
-    var validation by rememberSaveable { mutableStateOf("Draft not validated") }
     var tunnelMode by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readMode(context)) }
-    var httpHost by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpHost(context)) }
-    var httpPort by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpPort(context)) }
-    var httpUser by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpUser(context)) }
-    var httpPassword by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpPassword(context)) }
+    val savedSsh = remember(profileId) { SshConfigStore.read(context) }
+    var sshMode by rememberSaveable(profileId) { mutableStateOf(savedSsh.mode) }
+    var sshHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.host) }
+    var sshPort by rememberSaveable(profileId) { mutableStateOf(savedSsh.port.toString()) }
+    var sshUsername by rememberSaveable(profileId) { mutableStateOf(savedSsh.username) }
+    var sshPassword by rememberSaveable(profileId) { mutableStateOf(savedSsh.password) }
+    var proxyHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.proxyHost) }
+    var proxyPort by rememberSaveable(profileId) { mutableStateOf(savedSsh.proxyPort.toString()) }
+    var sniHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.sniHost) }
+    var saveMessage by rememberSaveable(profileId) { mutableStateOf("") }
+    var jsonText by rememberSaveable(profileId) { mutableStateOf(LocalStore.readJson(context)) }
+    var validation by rememberSaveable(profileId) { mutableStateOf("Configuration not validated") }
 
     ScreenColumn(padding) {
         Text("Connection engine", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Choose connection mode for this profile.", color = Color.LightGray, fontSize = 13.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf(TunnelModeStore.MODE_XRAY, TunnelModeStore.MODE_HTTP, TunnelModeStore.MODE_SSH).forEach { mode ->
-                if (tunnelMode == mode) Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(mode) }
-                else OutlinedButton(onClick = { tunnelMode = mode; TunnelModeStore.saveMode(context, mode) }, modifier = Modifier.weight(1f)) { Text(mode) }
+        Text("Choose the tunnel protocol for this profile.", color = Color.LightGray, fontSize = 13.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(TunnelModeStore.MODE_XRAY, TunnelModeStore.MODE_SSH).forEach { mode ->
+                if (tunnelMode == mode) {
+                    Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(mode) }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            tunnelMode = mode
+                            TunnelModeStore.saveMode(context, mode)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text(mode) }
+                }
             }
         }
-        if (tunnelMode == TunnelModeStore.MODE_HTTP) {
-            Text("Routes through an HTTP proxy using Xray's HTTP outbound. Payload text is not injected.", color = Color.LightGray, fontSize = 12.sp)
-            OutlinedTextField(httpHost, { httpHost = it; TunnelModeStore.saveHttpHost(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy host / IP") }, singleLine = true)
-            OutlinedTextField(httpPort, { httpPort = it; TunnelModeStore.saveHttpPort(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-            OutlinedTextField(httpUser, { httpUser = it; TunnelModeStore.saveHttpUser(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy username (optional)") }, singleLine = true)
-            OutlinedTextField(httpPassword, { httpPassword = it; TunnelModeStore.saveHttpPassword(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy password (optional)") }, singleLine = true)
-        } else if (tunnelMode == TunnelModeStore.MODE_SSH) {
-            Text("SSH mode is selectable, but the SSH tunnel engine and SSH credentials are not integrated yet.", color = Color(0xFFFFD27A), fontSize = 12.sp)
-        }
-        Text("Xray configuration", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Edit an Xray JSON profile. Validation checks JSON syntax only, not every Xray field.", color = Color.LightGray, fontSize = 13.sp)
-        OutlinedTextField(
-            value = jsonText,
-            onValueChange = {
-                jsonText = it
-                LocalStore.writeJson(context, it)
-                validation = "Unsaved changes"
-            },
-            modifier = Modifier.fillMaxWidth().height(420.dp),
-            label = { Text("Xray JSON") },
-            minLines = 14,
-            maxLines = 30,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = {
-                validation = try {
-                    JSONObject(jsonText)
-                    "Valid JSON syntax"
-                } catch (error: Exception) {
-                    "Invalid JSON: ${error.message ?: "parse error"}"
+
+        if (tunnelMode == TunnelModeStore.MODE_SSH) {
+            SectionCard("SSH server") {
+                Text("SSH credentials and HTTP transport are stored per profile on this device.", color = Color.LightGray, fontSize = 12.sp)
+                OutlinedTextField(sshHost, { sshHost = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH server / host") }, singleLine = true)
+                OutlinedTextField(sshPort, { sshPort = it.filter(Char::isDigit).take(5) }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(sshUsername, { sshUsername = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH username") }, singleLine = true)
+                OutlinedTextField(sshPassword, { sshPassword = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH password") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+            }
+            SectionCard("SSH connection type") {
+                val modes = listOf(
+                    SshConfig.MODE_DIRECT to "Direct TCP",
+                    SshConfig.MODE_HTTP_PAYLOAD_DIRECT to "HTTP Payload",
+                    SshConfig.MODE_HTTP_PAYLOAD_PROXY to "HTTP Payload Proxy",
+                    SshConfig.MODE_TLS_PAYLOAD_PROXY to "TLS + SNI Payload"
+                )
+                modes.forEach { (value, label) ->
+                    val selected = sshMode == value
+                    if (selected) {
+                        Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text(label) }
+                    } else {
+                        OutlinedButton(onClick = { sshMode = value }, modifier = Modifier.fillMaxWidth()) { Text(label) }
+                    }
                 }
-            }) { Text("Validate JSON") }
-            OutlinedButton(onClick = {
-                jsonText = LocalStore.readJson(context)
-                validation = "Draft reloaded"
-            }) { Text("Reload saved") }
+                Text(
+                    "HTTP is a transport/payload option for SSH. It is not a separate VPN engine.",
+                    color = Color.LightGray,
+                    fontSize = 12.sp
+                )
+            }
+            if (sshMode == SshConfig.MODE_HTTP_PAYLOAD_PROXY || sshMode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
+                SectionCard("HTTP proxy") {
+                    OutlinedTextField(proxyHost, { proxyHost = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy host / IP") }, singleLine = true)
+                    OutlinedTextField(proxyPort, { proxyPort = it.filter(Char::isDigit).take(5) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                }
+            }
+            if (sshMode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
+                SectionCard("TLS / SNI") {
+                    OutlinedTextField(sniHost, { sniHost = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SNI host name") }, singleLine = true)
+                }
+            }
+            SectionCard("Payload") {
+                Text("Edit the HTTP request in the Payload tab. Supported tokens: [host], [port], [host_port], [crlf].", color = Color.LightGray, fontSize = 12.sp)
+                OutlinedButton(onClick = { saveMessage = "Open the Payload tab to edit the SSH payload." }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Payload editor is in the Payload tab")
+                }
+            }
+            Button(
+                onClick = {
+                    val next = SshConfig(
+                        mode = sshMode,
+                        host = sshHost.trim(),
+                        port = sshPort.toIntOrNull() ?: 0,
+                        username = sshUsername.trim(),
+                        password = sshPassword,
+                        proxyHost = proxyHost.trim(),
+                        proxyPort = proxyPort.toIntOrNull() ?: 0,
+                        sniHost = sniHost.trim(),
+                        payload = SshConfigStore.read(context).payload
+                    )
+                    try {
+                        next.validate()
+                        SshConfigStore.save(context, next)
+                        TunnelModeStore.saveMode(context, TunnelModeStore.MODE_SSH)
+                        saveMessage = "SSH settings saved for this profile."
+                    } catch (error: Exception) {
+                        saveMessage = error.message ?: "Check the SSH settings."
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save SSH configuration") }
+            if (saveMessage.isNotBlank()) Text(saveMessage, color = if (saveMessage.contains("saved")) Green else Color(0xFFFFD27A), fontSize = 12.sp)
+        } else {
+            Text("Xray configuration", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Edit a VLESS, VMess, Trojan or Shadowsocks Xray JSON profile.", color = Color.LightGray, fontSize = 13.sp)
+            OutlinedTextField(
+                value = jsonText,
+                onValueChange = {
+                    jsonText = it
+                    LocalStore.writeJson(context, it)
+                    validation = "Unsaved changes"
+                },
+                modifier = Modifier.fillMaxWidth().height(420.dp),
+                label = { Text("Xray JSON") },
+                minLines = 14,
+                maxLines = 30,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = {
+                    validation = try {
+                        JSONObject(jsonText)
+                        "Valid JSON syntax"
+                    } catch (error: Exception) {
+                        "Invalid JSON: ${error.message ?: "parse error"}"
+                    }
+                }) { Text("Validate JSON") }
+                OutlinedButton(onClick = {
+                    jsonText = LocalStore.readJson(context)
+                    validation = "Draft reloaded"
+                }) { Text("Reload saved") }
+            }
+            Text(validation, color = if (validation.startsWith("Valid")) Green else Color(0xFFFFD27A))
+            Text("Use authorized server values. Never share your UUID or private keys publicly.", color = Color.LightGray, fontSize = 12.sp)
         }
-        Text(validation, color = if (validation.startsWith("Valid")) Green else Color(0xFFFFD27A))
-        Text("Use your own server values. Never share your UUID, password, or private keys publicly.", color = Color.LightGray, fontSize = 12.sp)
     }
 }
 
