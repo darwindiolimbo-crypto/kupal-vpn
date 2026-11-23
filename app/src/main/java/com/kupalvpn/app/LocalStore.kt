@@ -7,7 +7,6 @@ object LocalStore {
     private const val KEY_JSON = "xray_json_draft"
     private const val KEY_PAYLOAD = "payload_template"
     private const val KEY_ADS_ENABLED = "ads_timer_enabled"
-    private const val KEY_AD_INTERVAL = "ads_timer_interval_minutes"
     private const val KEY_AD_CYCLE_START = "ads_timer_cycle_start"
 
     private fun prefs(context: Context) =
@@ -22,9 +21,7 @@ object LocalStore {
     fun adsEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ADS_ENABLED, true)
     fun setAdsEnabled(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean(KEY_ADS_ENABLED, enabled).apply()
 
-    fun adIntervalMinutes(context: Context): Int = prefs(context).getInt(KEY_AD_INTERVAL, 30)
-    fun setAdIntervalMinutes(context: Context, minutes: Int) =
-        prefs(context).edit().putInt(KEY_AD_INTERVAL, minutes.coerceIn(15, 120)).apply()
+    const val AD_REFRESH_INTERVAL_SECONDS = 10L
 
     fun adCycleStart(context: Context): Long {
         val preferences = prefs(context)
