@@ -101,7 +101,7 @@ object SshConfigStore {
         val p = prefs(context)
         val encrypted = p.getString(key(context, "password_enc"), null)
         if (encrypted != null) {
-            return runCatching { decryptPassword(encrypted) }.getOrElse {
+            return runCatching { decryptSecret(encrypted) }.getOrElse {
                 throw IllegalStateException("Cannot decrypt the saved SSH password. Re-enter it in SSH settings.", it)
             }
         }
@@ -109,7 +109,7 @@ object SshConfigStore {
         // Migrate credentials saved by the earlier plaintext implementation.
         val legacy = p.getString(key(context, "password"), null).orEmpty()
         if (legacy.isEmpty()) return ""
-        val migrated = encryptPassword(legacy)
+        val migrated = encryptSecret(legacy)
         p.edit()
             .putString(key(context, "password_enc"), migrated)
             .remove(key(context, "password"))
@@ -148,7 +148,7 @@ object SshConfigStore {
             .putString(key(context, "host"), config.host.trim())
             .putString(key(context, "port"), config.port.toString())
             .putString(key(context, "username"), config.username)
-            .putString(key(context, "password_enc"), encryptPassword(config.password))
+            .putString(key(context, "password_enc"), encryptSecret(config.password))
             .putString(key(context, "private_key_enc"), encryptSecret(config.privateKey))
             .putString(key(context, "private_key_passphrase_enc"), encryptSecret(config.privateKeyPassphrase))
             .remove(key(context, "password"))
