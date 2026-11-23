@@ -58,6 +58,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.border
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -88,9 +90,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val Navy = Color(0xFF07111E)
-private val Panel = Color(0xFF102236)
-private val Green = Color(0xFF21C58E)
+private val Navy = Color(0xFF050506)\nprivate val Panel = Color(0xB0121216)\nprivate val GlassBorder = Color(0x26FFFFFF)\nprivate val Green = Color(0xFF66F0B5)\nprivate val Accent = Color(0xFF8B7CFF)
 
 @Composable
 private fun KupalVpnTheme(content: @Composable () -> Unit) {
@@ -169,7 +169,7 @@ private fun KupalVpnApp(
     Scaffold(
         containerColor = Navy,
         bottomBar = {
-            NavigationBar(containerColor = Panel) {
+            NavigationBar(containerColor = Color(0xD90B0B0E)) {
                 listOf("Home", "Profiles", "Config", "Payload", "Free Servers", "Ads").forEach { destination ->
                     val icon = when (destination) {
                         "Home" -> Icons.Default.Home
@@ -251,7 +251,7 @@ private fun HomeScreen(
     ScreenColumn(padding) {
         Text("KUPAL VPN", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("Xray • V2Ray-compatible profile manager", color = Color.LightGray)
-        Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(24.dp)) {
+        Card(modifier = Modifier.border(1.dp, GlassBorder, RoundedCornerShape(24.dp)), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(24.dp)) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -301,7 +301,7 @@ private fun HomeScreen(
 
 @Composable
 private fun MetricCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = Panel)) {
+    Card(modifier = modifier.border(1.dp, GlassBorder, RoundedCornerShape(16.dp)), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, fontSize = 10.sp, color = Color.LightGray)
             Text(value, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -311,7 +311,7 @@ private fun MetricCard(label: String, value: String, modifier: Modifier = Modifi
 
 @Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+    Card(modifier = Modifier.border(1.dp, GlassBorder, RoundedCornerShape(18.dp)), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(title, fontWeight = FontWeight.Bold, fontSize = 17.sp)
             content()
