@@ -127,9 +127,10 @@ private fun KupalVpnApp(
         containerColor = Navy,
         bottomBar = {
             NavigationBar(containerColor = Panel) {
-                listOf("Home", "Config", "Payload", "Free Servers", "Ads").forEach { destination ->
+                listOf("Home", "Profiles", "Config", "Payload", "Free Servers", "Ads").forEach { destination ->
                     val icon = when (destination) {
                         "Home" -> Icons.Default.Home
+                        "Profiles" -> Icons.Default.Settings
                         "Config" -> Icons.Default.Code
                         "Payload" -> Icons.Default.Tune
                         "Free Servers" -> Icons.Default.Settings
@@ -154,6 +155,7 @@ private fun KupalVpnApp(
                 previewConnected = previewConnected,
                 onPreviewConnectionChange = { previewConnected = it }
             )
+            "Profiles" -> ProfilesScreen(padding = padding)
             "Config" -> ConfigScreen(padding = padding)
             "Payload" -> PayloadScreen(padding = padding)
             "Free Servers" -> FreeServersScreen(padding = padding)
