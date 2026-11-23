@@ -445,12 +445,14 @@ class SshTunnelEngine(
                 raw.connect(InetSocketAddress(connectHost, connectPort), 20_000)
                 raw.soTimeout = 15_000
                 var active: Socket = raw
-                if (config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
+                if (config.mode == SshConfig.MODE_TLS_PAYLOAD_DIRECT || config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
                     val sni = config.sniHost.trim().ifBlank { connectHost }
                     val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
                         .createSocket(raw, sni, connectPort, true) as SSLSocket
                     val parameters = ssl.sslParameters
-                    parameters.serverNames = listOf(SNIHostName(sni))
+                    if (sni.matches(Regex("^[0-9.]+$")).not()) {
+                        parameters.serverNames = listOf(SNIHostName(sni))
+                    }
                     ssl.sslParameters = parameters
                     ssl.startHandshake()
                     ssl.soTimeout = 15_000
