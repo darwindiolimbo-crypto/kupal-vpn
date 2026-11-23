@@ -49,7 +49,7 @@ class KupalVpnService : VpnService() {
 
             val config = JSONObject(configText)
             val env = config.optJSONObject("env") ?: JSONObject().also { config.put("env", it) }
-            env.put("xray.tun.fd", tun!!.fd)
+            env.put("xray.tun.fd", tun!!.fd.toString())
             val inbounds = config.optJSONArray("inbounds") ?: org.json.JSONArray().also { config.put("inbounds", it) }
             val tunInbound = JSONObject()
                 .put("tag", "kupal-tun-in")
