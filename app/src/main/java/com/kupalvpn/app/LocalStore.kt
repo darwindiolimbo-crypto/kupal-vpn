@@ -54,10 +54,9 @@ object LocalStore {
         val p = prefs(context)
         val active = p.getLong(KEY_VPN_TIME_STARTED, 0L) != 0L
         val updated = remainingVpnMillis(context) + millis
-        p.edit().putLong(KEY_VPN_TIME_BALANCE, updated)
-            .apply {
-                if (active) putLong(KEY_VPN_TIME_STARTED, System.currentTimeMillis())
-            }.apply()
+        val editor = p.edit().putLong(KEY_VPN_TIME_BALANCE, updated)
+        if (active) editor.putLong(KEY_VPN_TIME_STARTED, System.currentTimeMillis())
+        editor.apply()
     }
 
     fun startVpnTime(context: Context): Boolean {
