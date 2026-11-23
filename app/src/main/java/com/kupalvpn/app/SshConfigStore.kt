@@ -1,6 +1,14 @@
 package com.kupalvpn.app
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 data class SshConfig(
     val mode: String,
@@ -40,8 +48,72 @@ data class SshConfig(
 /** Per-profile SSH transport settings. These settings are kept locally on this device. */
 object SshConfigStore {
     private const val PREFS = "kupal_ssh_profiles"
+    private const val KEY_ALIAS = "kupalvpn_ssh_password_aes"
+    private const val KEYSTORE = "AndroidKeyStore"
+    private const val TRANSFORMATION = "AES/GCM/NoPadding"
+    private const val IV_LENGTH = 12
+
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun key(context: Context, field: String) = "${ProfileStore.activeProfileId(context)}_$field"
+
+    private fun getOrCreateEncryptionKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
+        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .build()
+        )
+        return generator.generateKey()
+    }
+
+    private fun encryptPassword(password: String): String {
+        if (password.isEmpty()) return ""
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateEncryptionKey())
+        val encrypted = cipher.doFinal(password.toByteArray(Charsets.UTF_8))
+        val stored = ByteArray(cipher.iv.size + encrypted.size)
+        System.arraycopy(cipher.iv, 0, stored, 0, cipher.iv.size)
+        System.arraycopy(encrypted, 0, stored, cipher.iv.size, encrypted.size)
+        return Base64.encodeToString(stored, Base64.NO_WRAP)
+    }
+
+    private fun decryptPassword(encoded: String): String {
+        if (encoded.isEmpty()) return ""
+        val stored = Base64.decode(encoded, Base64.NO_WRAP)
+        require(stored.size > IV_LENGTH) { "Stored SSH password is invalid" }
+        val iv = stored.copyOfRange(0, IV_LENGTH)
+        val encrypted = stored.copyOfRange(IV_LENGTH, stored.size)
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, getOrCreateEncryptionKey(), GCMParameterSpec(128, iv))
+        return String(cipher.doFinal(encrypted), Charsets.UTF_8)
+    }
+
+    private fun readPassword(context: Context): String {
+        val p = prefs(context)
+        val encrypted = p.getString(key(context, "password_enc"), null)
+        if (encrypted != null) {
+            return runCatching { decryptPassword(encrypted) }.getOrElse {
+                throw IllegalStateException("Cannot decrypt the saved SSH password. Re-enter it in SSH settings.", it)
+            }
+        }
+
+        // Migrate credentials saved by the earlier plaintext implementation.
+        val legacy = p.getString(key(context, "password"), null).orEmpty()
+        if (legacy.isEmpty()) return ""
+        val migrated = encryptPassword(legacy)
+        p.edit()
+            .putString(key(context, "password_enc"), migrated)
+            .remove(key(context, "password"))
+            .apply()
+        return legacy
+    }
 
     fun read(context: Context): SshConfig {
         val p = prefs(context)
@@ -50,7 +122,7 @@ object SshConfigStore {
             host = p.getString(key(context, "host"), "") ?: "",
             port = p.getString(key(context, "port"), "22")?.toIntOrNull() ?: 22,
             username = p.getString(key(context, "username"), "") ?: "",
-            password = p.getString(key(context, "password"), "") ?: "",
+            password = readPassword(context),
             proxyHost = p.getString(key(context, "proxy_host"), "") ?: "",
             proxyPort = p.getString(key(context, "proxy_port"), "8080")?.toIntOrNull() ?: 8080,
             sniHost = p.getString(key(context, "sni_host"), "") ?: "",
@@ -65,7 +137,8 @@ object SshConfigStore {
             .putString(key(context, "host"), config.host.trim())
             .putString(key(context, "port"), config.port.toString())
             .putString(key(context, "username"), config.username)
-            .putString(key(context, "password"), config.password)
+            .putString(key(context, "password_enc"), encryptPassword(config.password))
+            .remove(key(context, "password"))
             .putString(key(context, "proxy_host"), config.proxyHost.trim())
             .putString(key(context, "proxy_port"), config.proxyPort.toString())
             .putString(key(context, "sni_host"), config.sniHost.trim())
