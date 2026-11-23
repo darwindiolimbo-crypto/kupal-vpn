@@ -48,7 +48,7 @@ class AdsController(private val activity: Activity) {
         Thread {
             MobileAds.initialize(activity) {
                 activity.runOnUiThread {
-                    lastStatus = "AdMob initialized (rewarded test ads)"
+                    lastStatus = "AdMob initialized"
                     loadRewardedAd()
                 }
             }
@@ -59,7 +59,7 @@ class AdsController(private val activity: Activity) {
         if (!initialized || rewardedAd != null) return
         RewardedAd.load(
             activity,
-            TEST_REWARDED_AD_UNIT_ID,
+            REWARDED_AD_UNIT_ID,
             AdRequest.Builder().build(),
             object : RewardedAdLoadCallback() {
                 override fun onAdLoaded(ad: RewardedAd) {
@@ -117,7 +117,7 @@ class AdsController(private val activity: Activity) {
     }
 
     companion object {
-        // Kupal VPN's configured AdMob rewarded ad unit.
-        const val TEST_REWARDED_AD_UNIT_ID = "ca-app-pub-9471897591250086/2836147281"
+        // Kupal VPN's configured production rewarded ad unit.
+        const val REWARDED_AD_UNIT_ID = "ca-app-pub-9471897591250086/2836147281"
     }
 }
