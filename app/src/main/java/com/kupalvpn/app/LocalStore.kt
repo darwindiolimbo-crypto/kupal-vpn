@@ -16,12 +16,12 @@ object LocalStore {
         "${base}_${ProfileStore.activeProfileId(context)}"
 
     fun readJson(context: Context): String =
-        prefs(context).getString(profileKey(KEY_JSON, context), DEFAULT_JSON) ?: DEFAULT_JSON
+        prefs(context).getString(profileKey(KEY_JSON, context), null) ?: prefs(context).getString(KEY_JSON, DEFAULT_JSON) ?: DEFAULT_JSON
     fun writeJson(context: Context, value: String) =
         prefs(context).edit().putString(profileKey(KEY_JSON, context), value).apply()
 
     fun readPayload(context: Context): String =
-        prefs(context).getString(profileKey(KEY_PAYLOAD, context), DEFAULT_PAYLOAD) ?: DEFAULT_PAYLOAD
+        prefs(context).getString(profileKey(KEY_PAYLOAD, context), null) ?: prefs(context).getString(KEY_PAYLOAD, DEFAULT_PAYLOAD) ?: DEFAULT_PAYLOAD
     fun writePayload(context: Context, value: String) =
         prefs(context).edit().putString(profileKey(KEY_PAYLOAD, context), value).apply()
 
