@@ -17,6 +17,7 @@ import org.json.JSONObject
 class KupalVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var coreClass: Class<*>? = null
+    private var sshTunnel: SshTunnelEngine? = null
     private val vpnTimeHandler = Handler(Looper.getMainLooper())
     private val vpnTimeTick = object : Runnable {
         override fun run() {
@@ -67,21 +68,24 @@ class KupalVpnService : VpnService() {
             tun = builder.establish() ?: error("Android did not create the VPN interface")
 
             val mode = TunnelModeStore.readMode(this)
-            if (mode == TunnelModeStore.MODE_SSH) error("SSH tunnel engine is not installed yet. SSH mode settings are saved, but SSH connection support is pending.")
-            val config = JSONObject(configText)
-            if (mode == TunnelModeStore.MODE_HTTP) TunnelModeStore.applyHttpProxy(this, config)
-            val env = config.optJSONObject("env") ?: JSONObject().also { config.put("env", it) }
-            env.put("xray.tun.fd", tun!!.fd.toString())
-            val inbounds = config.optJSONArray("inbounds") ?: org.json.JSONArray().also { config.put("inbounds", it) }
-            val tunInbound = JSONObject()
-                .put("tag", "kupal-tun-in")
-                .put("protocol", "tun")
-                .put("settings", JSONObject().put("mtu", 1500))
-            val existingTun = (0 until inbounds.length()).firstOrNull { inbounds.optJSONObject(it)?.optString("protocol") == "tun" }
-            if (existingTun == null) inbounds.put(tunInbound) else inbounds.put(existingTun, tunInbound)
-
-            registerSocketProtection()
-            invokeCore("runXray", JSONObject().put("xrayJson", config.toString()))
+            if (mode == TunnelModeStore.MODE_SSH) {
+                val engine = SshTunnelEngine(this, SshConfigStore.read(this))
+                sshTunnel = engine
+                check(engine.start(tun!!.fd)) { "SSH tunnel engine did not start" }
+            } else {
+                val config = JSONObject(configText)
+                val env = config.optJSONObject("env") ?: JSONObject().also { config.put("env", it) }
+                env.put("xray.tun.fd", tun!!.fd.toString())
+                val inbounds = config.optJSONArray("inbounds") ?: org.json.JSONArray().also { config.put("inbounds", it) }
+                val tunInbound = JSONObject()
+                    .put("tag", "kupal-tun-in")
+                    .put("protocol", "tun")
+                    .put("settings", JSONObject().put("mtu", 1500))
+                val existingTun = (0 until inbounds.length()).firstOrNull { inbounds.optJSONObject(it)?.optString("protocol") == "tun" }
+                if (existingTun == null) inbounds.put(tunInbound) else inbounds.put(existingTun, tunInbound)
+                registerSocketProtection()
+                invokeCore("runXray", JSONObject().put("xrayJson", config.toString()))
+            }
             if (!LocalStore.startVpnTime(this)) error("VPN time credit expired before connection")
             setState("connected")
             updateNotification("Kupal VPN connected · rewarded time active")
@@ -91,6 +95,8 @@ class KupalVpnService : VpnService() {
             Log.e(TAG, "Unable to start Xray VPN", error)
             setState("error: ${error.message ?: error.javaClass.simpleName}")
             runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
+            runCatching { sshTunnel?.stop() }
+            sshTunnel = null
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
             LocalStore.pauseVpnTime(this)
             tun?.close()
@@ -149,6 +155,8 @@ class KupalVpnService : VpnService() {
         } catch (error: Exception) {
             Log.w(TAG, "Xray stop returned an error", error)
         } finally {
+            runCatching { sshTunnel?.stop() }
+            sshTunnel = null
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
             LocalStore.pauseVpnTime(this)
             try {
