@@ -293,11 +293,12 @@ class SshTunnelEngine(
                 try {
                     while (active.get() && running.get()) {
                         val frameLength = gatewayInput.readUnsignedByte() or (gatewayInput.readUnsignedByte() shl 8)
-                        if (frameLength < 9 || frameLength > 65_535) error("Invalid UDPGW frame length")
+                        if (frameLength < 3) error("Invalid UDPGW frame length")
                         val frame = ByteArray(frameLength)
                         gatewayInput.readFully(frame)
                         val flags = frame[0].toInt() and 0xFF
                         if ((flags and UDPGW_FLAG_KEEPALIVE) != 0) continue
+                        if (frameLength < 9) error("UDPGW data frame is too short")
                         val connectionId = (frame[1].toInt() and 0xFF) or ((frame[2].toInt() and 0xFF) shl 8)
                         if (!destinationById.containsKey(connectionId)) continue
                         val ipv6 = (flags and UDPGW_FLAG_IPV6) != 0
@@ -406,18 +407,21 @@ class SshTunnelEngine(
         port: Int,
         payload: ByteArray
     ) {
-        val bodyLength = 3 + address.size + 2 + payload.size
+        val keepalive = (flags and UDPGW_FLAG_KEEPALIVE) != 0
+        val bodyLength = 3 + if (keepalive) 0 else address.size + 2 + payload.size
         require(bodyLength <= 65_535) { "UDP datagram is too large for UDPGW" }
         output.writeByte(bodyLength and 0xFF)
         output.writeByte((bodyLength shr 8) and 0xFF)
         output.writeByte(flags and 0xFF)
         output.writeByte(connectionId and 0xFF)
         output.writeByte((connectionId shr 8) and 0xFF)
-        output.write(address)
-        // BadVPN's packed BAddr uses network byte order for address ports.
-        output.writeByte((port shr 8) and 0xFF)
-        output.writeByte(port and 0xFF)
-        output.write(payload)
+        if (!keepalive) {
+            output.write(address)
+            // BadVPN's packed BAddr uses network byte order for address ports.
+            output.writeByte((port shr 8) and 0xFF)
+            output.writeByte(port and 0xFF)
+            output.write(payload)
+        }
         output.flush()
     }
 
