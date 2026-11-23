@@ -461,13 +461,17 @@ class SshTunnelEngine(
                 var active: Socket = raw
                 if (config.mode == SshConfig.MODE_TLS_PAYLOAD_DIRECT || config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
                     val sni = config.sniHost.trim().ifBlank { connectHost }
+                    val tlsPort = if (config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) 443 else connectPort
+                    if (config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
+                        establishHttpConnect(raw, sni, tlsPort)
+                    }
                     val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-                        .createSocket(raw, sni, connectPort, true) as SSLSocket
+                        .createSocket(raw, sni, tlsPort, true) as SSLSocket
                     val parameters = ssl.sslParameters
                     if (!sni.matches(Regex("^[0-9.]+$"))) {
                         parameters.serverNames = listOf(SNIHostName(sni))
-                        parameters.endpointIdentificationAlgorithm = "HTTPS"
                     }
+                    parameters.endpointIdentificationAlgorithm = "HTTPS"
                     ssl.sslParameters = parameters
                     ssl.startHandshake()
                     ssl.soTimeout = 15_000
@@ -493,6 +497,23 @@ class SshTunnelEngine(
 
         override fun getInputStream(socket: Socket): InputStream = socket.getInputStream()
         override fun getOutputStream(socket: Socket): OutputStream = socket.getOutputStream()
+
+        private fun establishHttpConnect(socket: Socket, targetHost: String, targetPort: Int) {
+            val hostPort = if (targetHost.contains(':') && !targetHost.startsWith("[")) {
+                "[$targetHost]:$targetPort"
+            } else {
+                "$targetHost:$targetPort"
+            }
+            val request = "CONNECT $hostPort HTTP/1.1\r\nHost: $hostPort\r\nProxy-Connection: Keep-Alive\r\n\r\n"
+            socket.getOutputStream().apply {
+                write(request.toByteArray(Charsets.ISO_8859_1))
+                flush()
+            }
+            val response = readHttpResponseHeader(socket.getInputStream())
+            val status = response.lineSequence().firstOrNull().orEmpty()
+            val statusCode = status.split(' ').getOrNull(1)?.toIntOrNull() ?: 0
+            check(statusCode in 200..299) { "HTTP proxy could not establish TLS tunnel: $status" }
+        }
 
         private fun renderPayload(template: String, host: String, port: Int): String {
             val hostPort = if (host.contains(':') && !host.startsWith("[")) "[$host]:$port" else "$host:$port"
