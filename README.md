@@ -57,3 +57,10 @@ To make it a real VPN app, the next implementation stage is to integrate Xray-co
 - Google UMP consent SDK: https://developers.google.com/admob/android/privacy
 - Android VPN guide: https://developer.android.com/develop/connectivity/vpn
 - Xray-core TUN Android notes: https://github.com/XTLS/Xray-core/tree/main/proxy/tun
+
+
+## Build on GitHub Actions
+
+A GitHub Actions workflow is configured at `.github/workflows/android-build.yml`. It runs on pushes to `main`, pull requests targeting `main`, or manual dispatch from the Actions tab. It builds a debug APK with JDK 17 and Gradle 8.9, then uploads the APK as the `KupalVPN-debug` artifact (available for 14 days).
+
+
