@@ -131,6 +131,10 @@ object SshConfigStore {
         )
     }
 
+    fun savePayload(context: Context, payload: String) {
+        prefs(context).edit().putString(key(context, "payload"), payload).apply()
+    }
+
     fun save(context: Context, config: SshConfig) {
         prefs(context).edit()
             .putString(key(context, "mode"), config.mode)
