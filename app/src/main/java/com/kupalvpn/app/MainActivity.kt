@@ -564,8 +564,7 @@ private fun PayloadScreen(padding: PaddingValues) {
                     OutlinedButton(
                         onClick = {
                             payload = template
-                            val current = SshConfigStore.read(context)
-                            SshConfigStore.save(context, current.copy(payload = template))
+                            SshConfigStore.savePayload(context, template)
                             result = "Loaded template: $name"
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -578,8 +577,7 @@ private fun PayloadScreen(padding: PaddingValues) {
                 value = payload,
                 onValueChange = {
                     payload = it
-                    val current = SshConfigStore.read(context)
-                    SshConfigStore.save(context, current.copy(payload = it))
+                    SshConfigStore.savePayload(context, it)
                     result = "Draft saved for the active profile"
                 },
                 modifier = Modifier.fillMaxWidth().height(220.dp),
@@ -613,14 +611,12 @@ private fun PayloadScreen(padding: PaddingValues) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = {
-                val current = SshConfigStore.read(context)
-                SshConfigStore.save(context, current.copy(payload = payload))
+                SshConfigStore.savePayload(context, payload)
                 result = "Payload saved to the active SSH profile"
             }, modifier = Modifier.weight(1f)) { Text("Save") }
             OutlinedButton(onClick = {
                 payload = SshConfigStore.DEFAULT_PAYLOAD
-                val current = SshConfigStore.read(context)
-                SshConfigStore.save(context, current.copy(payload = payload))
+                SshConfigStore.savePayload(context, payload)
                 result = "Default HTTP CONNECT template restored"
             }, modifier = Modifier.weight(1f)) { Text("Reset") }
         }
