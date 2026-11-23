@@ -371,7 +371,9 @@ private fun ConfigScreen(padding: PaddingValues) {
     var sshHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.host) }
     var sshPort by rememberSaveable(profileId) { mutableStateOf(savedSsh.port.toString()) }
     var sshUsername by rememberSaveable(profileId) { mutableStateOf(savedSsh.username) }
-    var sshPassword by rememberSaveable(profileId) { mutableStateOf(savedSsh.password) }
+    var sshPassword by remember(profileId) { mutableStateOf(savedSsh.password) }
+    var privateKey by remember(profileId) { mutableStateOf(savedSsh.privateKey) }
+    var privateKeyPassphrase by remember(profileId) { mutableStateOf(savedSsh.privateKeyPassphrase) }
     var proxyHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.proxyHost) }
     var proxyPort by rememberSaveable(profileId) { mutableStateOf(savedSsh.proxyPort.toString()) }
     var sniHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.sniHost) }
@@ -379,6 +381,21 @@ private fun ConfigScreen(padding: PaddingValues) {
     var saveMessage by rememberSaveable(profileId) { mutableStateOf("") }
     var jsonText by rememberSaveable(profileId) { mutableStateOf(LocalStore.readJson(context)) }
     var validation by rememberSaveable(profileId) { mutableStateOf("Configuration not validated") }
+    val privateKeyPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: error("Cannot read the selected key file")
+                require(bytes.isNotEmpty() && bytes.size <= 128 * 1024) { "Private key file must be between 1 byte and 128 KB" }
+                val text = String(bytes, Charsets.UTF_8)
+                require(text.contains("PRIVATE KEY")) { "Selected file does not look like a PEM/OpenSSH private key" }
+                privateKey = text
+                saveMessage = "Private key imported. Tap Save SSH configuration to store it securely."
+            } catch (error: Exception) {
+                saveMessage = error.message ?: "Could not import private key"
+            }
+        }
+    }
 
     ScreenColumn(padding) {
         Text("Connection engine", fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -405,7 +422,27 @@ private fun ConfigScreen(padding: PaddingValues) {
                 OutlinedTextField(sshHost, { sshHost = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH server / host") }, singleLine = true)
                 OutlinedTextField(sshPort, { sshPort = it.filter(Char::isDigit).take(5) }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 OutlinedTextField(sshUsername, { sshUsername = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH username") }, singleLine = true)
-                OutlinedTextField(sshPassword, { sshPassword = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH password") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                OutlinedTextField(sshPassword, { sshPassword = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH password (optional when key is used)") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+            }
+            SectionCard("SSH authentication key") {
+                Text("You can authenticate with a password, a private key, or both. Imported keys are encrypted with Android Keystore before being stored.", color = Color.LightGray, fontSize = 12.sp)
+                Button(onClick = { privateKeyPicker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (privateKey.isBlank()) "Import private key" else "Replace private key")
+                }
+                Text(if (privateKey.isBlank()) "No private key imported" else "Private key imported for this profile", color = if (privateKey.isBlank()) Color.LightGray else Green, fontSize = 12.sp)
+                OutlinedTextField(
+                    privateKeyPassphrase,
+                    { privateKeyPassphrase = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Private key passphrase (optional)") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                if (privateKey.isNotBlank()) {
+                    OutlinedButton(onClick = { privateKey = ""; privateKeyPassphrase = "" }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Remove imported key")
+                    }
+                }
             }
             SectionCard("SSH connection type") {
                 val modes = listOf(
@@ -454,6 +491,8 @@ private fun ConfigScreen(padding: PaddingValues) {
                         port = sshPort.toIntOrNull() ?: 0,
                         username = sshUsername.trim(),
                         password = sshPassword,
+                        privateKey = privateKey,
+                        privateKeyPassphrase = privateKeyPassphrase,
                         proxyHost = proxyHost.trim(),
                         proxyPort = proxyPort.toIntOrNull() ?: 0,
                         sniHost = sniHost.trim(),
