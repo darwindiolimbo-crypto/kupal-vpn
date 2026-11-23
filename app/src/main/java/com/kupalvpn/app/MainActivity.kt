@@ -205,7 +205,21 @@ private fun KupalVpnApp(
                 previewConnected = previewConnected,
                 onPreviewConnectionChange = { requestVpnToggle() },
                 vpnStatus = vpnState,
-                vpnTimeMillis = vpnTimeBalance
+                vpnTimeMillis = vpnTimeBalance,
+                adsController = adsController,
+                adsEnabled = adsEnabled,
+                cooldownMillis = remaining,
+                actionMessage = adActionMessage,
+                onAdsEnabledChange = { adsEnabled = it; LocalStore.setAdsEnabled(context, it) },
+                onShowAd = {
+                    val activity = context as? Activity
+                    adActionMessage = if (activity == null) "Could not access Activity" else adsController.tryShowRewardedAd {
+                        LocalStore.grantVpnTime(context)
+                        vpnTimeBalance = LocalStore.remainingVpnMillis(context)
+                        adActionMessage = "Reward earned: +2 hours VPN time"
+                    }
+                },
+                onPrivacyOptions = onPrivacyOptions
             )
             "Profiles" -> ProfilesScreen(padding = padding)
             "Config" -> ConfigScreen(padding = padding)
@@ -233,11 +247,18 @@ private fun HomeScreen(
     previewConnected: Boolean,
     onPreviewConnectionChange: (Boolean) -> Unit,
     vpnStatus: String,
-    vpnTimeMillis: Long
+    vpnTimeMillis: Long,
+    adsController: AdsController,
+    adsEnabled: Boolean,
+    cooldownMillis: Long,
+    actionMessage: String,
+    onAdsEnabledChange: (Boolean) -> Unit,
+    onShowAd: () -> Unit,
+    onPrivacyOptions: () -> Unit
 ) {
     ScreenColumn(padding) {
         Text("KUPAL VPN", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("Xray • V2Ray-compatible profile manager", color = Color.LightGray)
+        Text("Xray • Profile manager", color = Color.LightGray)
         Card(modifier = Modifier.border(1.dp, GlassBorder, RoundedCornerShape(24.dp)), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(24.dp)) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(22.dp),
@@ -247,27 +268,14 @@ private fun HomeScreen(
                 Text(vpnStatus.uppercase(), color = if (previewConnected) Green else Color.LightGray)
                 Text("VPN time: ${formatCountdown(vpnTimeMillis)}", color = if (vpnTimeMillis > 0L) Green else Color(0xFFFFD27A), fontWeight = FontWeight.SemiBold)
                 Image(
-                    painter = painterResource(
-                        if (previewConnected) R.drawable.connected_status_button
-                        else R.drawable.disconnected_status_button
-                    ),
+                    painter = painterResource(if (previewConnected) R.drawable.connected_status_button else R.drawable.disconnected_status_button),
                     contentDescription = if (previewConnected) "VPN connected. Tap to disconnect." else "VPN disconnected. Tap to connect.",
-                    modifier = Modifier
-                        .size(188.dp)
-                        .clickable(enabled = previewConnected || vpnTimeMillis > 0L) { onPreviewConnectionChange(!previewConnected) }
+                    modifier = Modifier.size(188.dp).clickable(enabled = previewConnected || vpnTimeMillis > 0L) { onPreviewConnectionChange(!previewConnected) }
                 )
-                Button(
-                    onClick = { onPreviewConnectionChange(!previewConnected) },
-                    enabled = previewConnected || vpnTimeMillis > 0L,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Button(onClick = { onPreviewConnectionChange(!previewConnected) }, enabled = previewConnected || vpnTimeMillis > 0L, modifier = Modifier.fillMaxWidth()) {
                     Text(if (previewConnected) "Disconnect VPN" else if (vpnTimeMillis > 0L) "Connect VPN" else "Watch ads to earn VPN time")
                 }
-                Text(
-                    "Powered by Xray-core through Android VpnService. Select a valid server configuration before connecting.",
-                    color = Color(0xFFFFD27A),
-                    fontSize = 12.sp
-                )
+                Text("Select a valid server profile before connecting.", color = Color(0xFFFFD27A), fontSize = 12.sp)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -275,11 +283,27 @@ private fun HomeScreen(
             MetricCard("UPLOAD", "0 KB/s", Modifier.weight(1f))
             MetricCard("PING", "-- ms", Modifier.weight(1f))
         }
-        SectionCard("Included modules") {
-            Text("• Xray JSON editor with syntax validation")
-            Text("• HTTP payload template editor and preview")
-            Text("• Rewarded ads unlock VPN time (2 hours per completed ad)")
-            Text("• UMP privacy consent and privacy options entry point")
+        SectionCard("Modules") {
+            Text("• Xray profiles")
+            Text("• SSH tunnel mode")
+            Text("• HTTP payload editor")
+        }
+        SectionCard("Earn VPN time") {
+            Text("Balance: ${formatCountdown(vpnTimeMillis)}", fontSize = 20.sp, color = if (vpnTimeMillis > 0L) Green else Color.White, fontWeight = FontWeight.Bold)
+            Text("Completed rewarded ads add 2 hours. VPN time is only consumed while connected.", fontSize = 12.sp, color = Color.LightGray)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    Text("Rewarded ads")
+                    Text(if (adsEnabled) "Enabled" else "Paused", fontSize = 12.sp, color = Color.LightGray)
+                }
+                Switch(checked = adsEnabled, onCheckedChange = onAdsEnabledChange)
+            }
+            Text("Reward: +02:00:00", color = Green, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Next ad: ${if (!adsEnabled) "PAUSED" else if (cooldownMillis <= 0L) "READY" else formatCountdown(cooldownMillis)}", fontSize = 12.sp, color = Color.LightGray)
+            Button(onClick = onShowAd, enabled = adsEnabled && cooldownMillis <= 0L, modifier = Modifier.fillMaxWidth()) { Text("Watch ad · Earn 2 hours") }
+            if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
+            Text("Ad status: ${adsController.lastStatus}", fontSize = 11.sp, color = Color.LightGray)
+            OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) { Text("Privacy & consent") }
         }
     }
 }
@@ -436,60 +460,6 @@ private fun PayloadScreen(padding: PaddingValues) {
             }) { Text("Reset") }
         }
         Text(result, color = Green, fontSize = 12.sp)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AdsScreen(
-    padding: PaddingValues,
-    adsController: AdsController,
-    previewConnected: Boolean,
-    adsEnabled: Boolean,
-    remainingMillis: Long,
-    vpnTimeMillis: Long,
-    actionMessage: String,
-    onEnabledChange: (Boolean) -> Unit,
-    onShowAd: () -> Unit,
-    onPrivacyOptions: () -> Unit
-) {
-    val adReady = remainingMillis <= 0L
-    ScreenColumn(padding) {
-        Text("Earn VPN time", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Watch a rewarded video to unlock free VPN usage.", color = Color.LightGray, fontSize = 13.sp)
-        SectionCard("VPN time balance") {
-            Text(formatCountdown(vpnTimeMillis), fontSize = 32.sp, color = if (vpnTimeMillis > 0L) Green else Color.White, fontWeight = FontWeight.Bold)
-            Text("Available VPN time", color = Color.LightGray, fontSize = 12.sp)
-            Text("Each completed rewarded ad adds 2 hours. VPN time is consumed only while connected and disconnects automatically when the time runs out.", fontSize = 12.sp, color = Color.LightGray)
-        }
-        SectionCard("Watch an ad") {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text("Rewarded videos", fontWeight = FontWeight.SemiBold)
-                    Text(if (adsEnabled) "Rewards enabled" else "Rewards paused", fontSize = 12.sp, color = Color.LightGray)
-                }
-                Switch(checked = adsEnabled, onCheckedChange = onEnabledChange)
-            }
-            Divider(color = Color(0xFF33485E))
-            Text("Reward per completed ad", fontWeight = FontWeight.SemiBold)
-            Text("+02:00:00 VPN time", fontSize = 24.sp, color = Green)
-            Text("Next ad: ${if (!adsEnabled) "PAUSED" else if (adReady) "READY" else formatCountdown(remainingMillis)}", fontSize = 13.sp, color = if (adReady && adsEnabled) Green else Color.LightGray)
-            Text("A 10-second cooldown applies after each ad starts. Ads are optional and rewards are granted only after AdMob confirms completion.", fontSize = 12.sp, color = Color.LightGray)
-            Button(onClick = onShowAd, enabled = adsEnabled && adReady, modifier = Modifier.fillMaxWidth()) {
-                Text("Watch ad · Earn 2 hours")
-            }
-            if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
-            Text("Ad status: ${adsController.lastStatus}", fontSize = 11.sp, color = Color.LightGray)
-        }
-        Text("VPN connection: ${if (previewConnected) "CONNECTED" else "DISCONNECTED"}", fontSize = 12.sp, color = Color.LightGray)
-        OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) {
-            Text("Privacy & consent options")
-        }
-        Text(
-            "Development uses Google's rewarded-video test ad unit. Replace it with your AdMob rewarded unit ID before release.",
-            color = Color(0xFFFFD27A),
-            fontSize = 12.sp
-        )
     }
 }
 
