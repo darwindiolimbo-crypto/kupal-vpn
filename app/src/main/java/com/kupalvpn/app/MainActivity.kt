@@ -427,39 +427,6 @@ private fun ConfigScreen(padding: PaddingValues) {
 }
 
 @Composable
-private fun FreeServersScreen(padding: PaddingValues) {
-    val context = LocalContext.current
-    val subscription = "https://radarhub.top/v2ray.txt"
-    var message by rememberSaveable { mutableStateOf("Public subscription source. The app currently cannot import/connect until the Xray engine is integrated.") }
-
-    ScreenColumn(padding) {
-        Text("Free test servers", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Use public nodes temporarily for protocol and UI testing. Public nodes are run by unknown operators and can be unreliable.", color = Color.LightGray, fontSize = 13.sp)
-        SectionCard("Free V2Ray / Xray-compatible subscription") {
-            Text("Free Nodes Radar", fontWeight = FontWeight.SemiBold)
-            Text("Publicly collected VLESS, VMess, Trojan, and Shadowsocks nodes. The list is refreshed periodically; individual nodes may be offline or unsafe.", color = Color.LightGray, fontSize = 13.sp)
-            Text(subscription, color = Color(0xFF59B9E8), fontSize = 12.sp)
-            Button(onClick = {
-                val clipboard = context.getSystemService(ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(ClipData.newPlainText("Free V2Ray subscription", subscription))
-                message = "Subscription URL copied. Subscription importing is not implemented yet."
-            }, modifier = Modifier.fillMaxWidth()) { Text("Copy subscription URL") }
-            OutlinedButton(onClick = {
-                val clipboard = context.getSystemService(ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(ClipData.newPlainText("Free V2Ray subscription", subscription))
-                message = "Copied for use in a compatible VPN client."
-            }, modifier = Modifier.fillMaxWidth()) { Text("Copy for external VPN client") }
-        }
-        SectionCard("Safety reminder") {
-            Text("Avoid banking, email, or sensitive logins on unknown free servers. HTTPS protects webpage contents, but server operators may still observe connection metadata. These entries are not guaranteed to work in your region.", color = Color(0xFFFFD27A), fontSize = 12.sp)
-        }
-        Text(message, color = Green, fontSize = 12.sp)
-        Text("The free server subscription is a source link, not a live VPN connection inside Kupal VPN yet.", color = Color.LightGray, fontSize = 12.sp)
-    }
-}
-
-
-@Composable
 private fun PayloadScreen(padding: PaddingValues) {
     val context = LocalContext.current
     val profileId = ProfileStore.activeProfileId(context)
@@ -530,57 +497,76 @@ private fun PayloadScreen(padding: PaddingValues) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AdsScreen(
-    padding: PaddingValues,
+private fun RewardAccessCard(
     adsController: AdsController,
-    previewConnected: Boolean,
     adsEnabled: Boolean,
     remainingMillis: Long,
     vpnTimeMillis: Long,
     actionMessage: String,
     onEnabledChange: (Boolean) -> Unit,
-    onShowAd: () -> Unit,
-    onPrivacyOptions: () -> Unit
+    onShowAd: () -> Unit
 ) {
     val adReady = remainingMillis <= 0L
-    ScreenColumn(padding) {
-        Text("Earn VPN time", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Watch a rewarded video to unlock free VPN usage.", color = Color.LightGray, fontSize = 13.sp)
-        SectionCard("VPN time balance") {
-            Text(formatCountdown(vpnTimeMillis), fontSize = 32.sp, color = if (vpnTimeMillis > 0L) Green else Color.White, fontWeight = FontWeight.Bold)
-            Text("Available VPN time", color = Color.LightGray, fontSize = 12.sp)
-            Text("Each completed rewarded ad adds 2 hours. VPN time is consumed only while connected and disconnects automatically when the time runs out.", fontSize = 12.sp, color = Color.LightGray)
-        }
-        SectionCard("Watch an ad") {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text("Rewarded videos", fontWeight = FontWeight.SemiBold)
-                    Text(if (adsEnabled) "Rewards enabled" else "Rewards paused", fontSize = 12.sp, color = Color.LightGray)
-                }
-                Switch(checked = adsEnabled, onCheckedChange = onEnabledChange)
+    SectionCard("Earn VPN time") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Available access", color = Color.LightGray, fontSize = 12.sp)
+                Text(formatCountdown(vpnTimeMillis), fontSize = 25.sp, fontWeight = FontWeight.Bold, color = if (vpnTimeMillis > 0L) Green else Color.White)
             }
-            Divider(color = Color(0xFF33485E))
-            Text("Reward per completed ad", fontWeight = FontWeight.SemiBold)
-            Text("+02:00:00 VPN time", fontSize = 24.sp, color = Green)
-            Text("Next ad: ${if (!adsEnabled) "PAUSED" else if (adReady) "READY" else formatCountdown(remainingMillis)}", fontSize = 13.sp, color = if (adReady && adsEnabled) Green else Color.LightGray)
-            Text("A 10-second cooldown applies after each ad starts. Ads are optional and rewards are granted only after AdMob confirms completion.", fontSize = 12.sp, color = Color.LightGray)
-            Button(onClick = onShowAd, enabled = adsEnabled && adReady, modifier = Modifier.fillMaxWidth()) {
-                Text("Watch ad · Earn 2 hours")
-            }
-            if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
-            Text("Ad status: ${adsController.lastStatus}", fontSize = 11.sp, color = Color.LightGray)
+            Switch(checked = adsEnabled, onCheckedChange = onEnabledChange)
         }
-        Text("VPN connection: ${if (previewConnected) "CONNECTED" else "DISCONNECTED"}", fontSize = 12.sp, color = Color.LightGray)
-        OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) {
-            Text("Privacy & consent options")
-        }
+        Text("+2 hours for each completed rewarded video", fontWeight = FontWeight.SemiBold, color = Green, fontSize = 13.sp)
         Text(
-            "Development uses Google's rewarded-video test ad unit. Replace it with your AdMob rewarded unit ID before release.",
-            color = Color(0xFFFFD27A),
+            if (!adsEnabled) "Rewarded ads are paused"
+            else if (adReady) "A rewarded video is ready"
+            else "Next video available in ${formatCountdown(remainingMillis)}",
+            color = Color.LightGray,
             fontSize = 12.sp
         )
+        Button(onClick = onShowAd, enabled = adsEnabled && adReady, modifier = Modifier.fillMaxWidth()) {
+            Text("Watch ad · Add 2 hours")
+        }
+        if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
+        Text(adsController.lastStatus, color = Color.LightGray, fontSize = 10.sp)
+        Text("10-second cooldown between ad starts. The reward is added only after AdMob confirms completion.", color = Color.LightGray, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    padding: PaddingValues,
+    onPrivacyOptions: () -> Unit
+) {
+    val context = LocalContext.current
+    ScreenColumn(padding) {
+        Text("Settings", fontSize = 23.sp, fontWeight = FontWeight.Bold)
+        Text("App preferences, privacy and remote configuration.", color = Color.LightGray, fontSize = 13.sp)
+        SectionCard("Privacy") {
+            Text("Manage consent and advertising privacy choices.", color = Color.LightGray, fontSize = 12.sp)
+            OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) {
+                Text("Privacy & consent options")
+            }
+        }
+        SectionCard("Configuration updates") {
+            Text("Payload templates and DNS presets are updated from the public Kupal VPN GitHub catalog. Server credentials are never included in that catalog.", color = Color.LightGray, fontSize = 12.sp)
+            OutlinedButton(
+                onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(RemoteConfigStore.EDIT_URL))
+                    context.startActivity(intent)
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Edit config catalog on GitHub") }
+            Text(RemoteConfigStore.CONFIG_URL, color = Color(0xFF59B9E8), fontSize = 10.sp)
+        }
+        SectionCard("About Kupal VPN") {
+            Text("Premium glass interface • SSH payload • Xray profiles", color = Color.LightGray, fontSize = 12.sp)
+            Text("Never publish your SSH password, private key, or Xray UUID in the public config catalog.", color = Color(0xFFFFD27A), fontSize = 11.sp)
+        }
     }
 }
 
