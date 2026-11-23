@@ -306,8 +306,9 @@ class SshTunnelEngine(
                         if (frame.size < headerLength) continue
                         val address = frame.copyOfRange(3, 3 + addressLength)
                         val portOffset = 3 + addressLength
-                        val sourcePort = (frame[portOffset].toInt() and 0xFF) or
-                            ((frame[portOffset + 1].toInt() and 0xFF) shl 8)
+                        // BadVPN address ports are stored in network byte order.
+                        val sourcePort = ((frame[portOffset].toInt() and 0xFF) shl 8) or
+                            (frame[portOffset + 1].toInt() and 0xFF)
                         val payload = frame.copyOfRange(headerLength, frame.size)
                         val peer = lastClient.get() ?: continue
                         val response = buildSocksUdpPacket(address, sourcePort, payload, ipv6)
@@ -413,9 +414,9 @@ class SshTunnelEngine(
         output.writeByte(connectionId and 0xFF)
         output.writeByte((connectionId shr 8) and 0xFF)
         output.write(address)
-        // BadVPN UDPGW encodes the destination port little-endian.
-        output.writeByte(port and 0xFF)
+        // BadVPN's packed BAddr uses network byte order for address ports.
         output.writeByte((port shr 8) and 0xFF)
+        output.writeByte(port and 0xFF)
         output.write(payload)
         output.flush()
     }
