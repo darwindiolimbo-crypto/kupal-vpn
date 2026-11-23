@@ -254,53 +254,90 @@ private fun HomeScreen(
     previewConnected: Boolean,
     onPreviewConnectionChange: (Boolean) -> Unit,
     vpnStatus: String,
-    vpnTimeMillis: Long
+    vpnTimeMillis: Long,
+    adsController: AdsController,
+    adsEnabled: Boolean,
+    adCooldownMillis: Long,
+    adActionMessage: String,
+    onAdsEnabledChange: (Boolean) -> Unit,
+    onWatchAd: () -> Unit
 ) {
     ScreenColumn(padding) {
-        Text("KUPAL VPN", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("Xray • V2Ray-compatible profile manager", color = Color.LightGray)
-        Card(modifier = Modifier.border(1.dp, GlassBorder, RoundedCornerShape(24.dp)), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(24.dp)) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(22.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("KUPAL VPN", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.4.sp)
+                Text("Private connection • Your profiles", color = Color.LightGray, fontSize = 12.sp)
+            }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF10271F)),
+                shape = RoundedCornerShape(50)
             ) {
-                Text(vpnStatus.uppercase(), color = if (previewConnected) Green else Color.LightGray)
-                Text("VPN time: ${formatCountdown(vpnTimeMillis)}", color = if (vpnTimeMillis > 0L) Green else Color(0xFFFFD27A), fontWeight = FontWeight.SemiBold)
+                Text("SECURE", modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp), color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth().border(1.dp, GlassBorder, RoundedCornerShape(26.dp)),
+            colors = CardDefaults.cardColors(containerColor = Panel),
+            shape = RoundedCornerShape(26.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(11.dp)
+            ) {
+                Text(
+                    vpnStatus.uppercase(),
+                    color = if (previewConnected) Green else Color.LightGray,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp
+                )
                 Image(
-                    painter = painterResource(
-                        if (previewConnected) R.drawable.connected_status_button
-                        else R.drawable.disconnected_status_button
-                    ),
+                    painter = painterResource(if (previewConnected) R.drawable.connected_status_button else R.drawable.disconnected_status_button),
                     contentDescription = if (previewConnected) "VPN connected. Tap to disconnect." else "VPN disconnected. Tap to connect.",
                     modifier = Modifier
-                        .size(188.dp)
+                        .size(176.dp)
                         .clickable(enabled = previewConnected || vpnTimeMillis > 0L) { onPreviewConnectionChange(!previewConnected) }
                 )
+                Text("VPN TIME  ${formatCountdown(vpnTimeMillis)}", color = if (vpnTimeMillis > 0L) Green else Color(0xFFFFD27A), fontWeight = FontWeight.SemiBold)
                 Button(
                     onClick = { onPreviewConnectionChange(!previewConnected) },
                     enabled = previewConnected || vpnTimeMillis > 0L,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(if (previewConnected) "Disconnect VPN" else if (vpnTimeMillis > 0L) "Connect VPN" else "Watch ads to earn VPN time")
+                    Text(if (previewConnected) "Disconnect" else if (vpnTimeMillis > 0L) "Connect VPN" else "Earn VPN time to connect")
                 }
                 Text(
-                    "Powered by Xray-core through Android VpnService. Select a valid server configuration before connecting.",
-                    color = Color(0xFFFFD27A),
-                    fontSize = 12.sp
+                    "Choose an SSH or Xray profile and save its server settings before connecting.",
+                    color = Color.LightGray,
+                    fontSize = 11.sp
                 )
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             MetricCard("DOWNLOAD", "0 KB/s", Modifier.weight(1f))
             MetricCard("UPLOAD", "0 KB/s", Modifier.weight(1f))
-            MetricCard("PING", "-- ms", Modifier.weight(1f))
+            MetricCard("LATENCY", "-- ms", Modifier.weight(1f))
         }
-        SectionCard("Included modules") {
-            Text("• Xray JSON editor with syntax validation")
-            Text("• HTTP payload template editor and preview")
-            Text("• Rewarded ads unlock VPN time (2 hours per completed ad)")
-            Text("• UMP privacy consent and privacy options entry point")
+        RewardAccessCard(
+            adsController = adsController,
+            adsEnabled = adsEnabled,
+            remainingMillis = adCooldownMillis,
+            vpnTimeMillis = vpnTimeMillis,
+            actionMessage = adActionMessage,
+            onEnabledChange = onAdsEnabledChange,
+            onShowAd = onWatchAd
+        )
+        SectionCard("Quick status") {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Engines", color = Color.LightGray)
+                Text("SSH • Xray", fontWeight = FontWeight.SemiBold)
+            }
+            Text("Rewarded time is saved on this device and is deducted only while the VPN is connected.", color = Color.LightGray, fontSize = 12.sp)
         }
     }
 }
