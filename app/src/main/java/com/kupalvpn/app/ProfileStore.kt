@@ -86,7 +86,7 @@ object ProfileStore {
             VpnProfile("dito-default", "DITO", "DITO", "internet.dito.ph", "VLESS", ""),
             VpnProfile("smart-default", "Smart", "Smart", "internet", "VLESS", ""),
             VpnProfile("tnt-default", "TNT / Talk 'N Text", "TNT", "internet", "VLESS", ""),
-            VpnProfile("globe-default", "Globe", "Globe", "http.globe.com.ph", "VLESS", ""),
+            VpnProfile("globe-default", "Globe", "Globe", "internet.globe.com.ph", "VLESS", ""),
             VpnProfile("tm-default", "TM", "TM", "internet.globe.com.ph", "VLESS", "")
         ))
         p.edit().putString(KEY_ACTIVE, "my-profile").apply()
@@ -110,7 +110,7 @@ fun ProfilesScreen(padding: androidx.compose.foundation.layout.PaddingValues) {
         Text("VPN profiles", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text("Save multiple carrier/server profiles and switch the active profile. Each profile keeps its own Xray JSON and payload draft.", color = Color.LightGray, fontSize = 13.sp)
         SectionCard("Add carrier profile") {
-            listOf("DITO" to "internet.dito.ph", "Smart" to "internet", "TNT / Talk 'N Text" to "internet", "Globe" to "http.globe.com.ph", "TM" to "internet.globe.com.ph", "Custom" to "").forEach { (carrier, value) ->
+            listOf("DITO" to "internet.dito.ph", "Smart" to "internet", "TNT / Talk 'N Text" to "internet", "Globe" to "internet.globe.com.ph", "TM" to "internet.globe.com.ph", "Custom" to "").forEach { (carrier, value) ->
                 OutlinedButton(onClick = { ProfileStore.add(context, carrier, value); reload(); editingId = activeId }, modifier = Modifier.fillMaxWidth()) { Text("＋ $carrier") }
             }
         }
