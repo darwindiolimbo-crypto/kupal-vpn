@@ -65,6 +65,7 @@ class KupalVpnService : VpnService() {
         } catch (error: Exception) {
             Log.e(TAG, "Unable to start Xray VPN", error)
             setState("error: ${error.message ?: error.javaClass.simpleName}")
+            runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
             tun?.close()
             tun = null
             stopForeground(STOP_FOREGROUND_REMOVE)
