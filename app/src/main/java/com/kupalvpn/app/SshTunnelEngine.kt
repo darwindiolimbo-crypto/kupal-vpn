@@ -50,7 +50,7 @@ class SshTunnelEngine(
         try {
             config.validate()
             val jsch = JSch()
-            jsch.hostKeyRepository = SshHostKeyRepository(vpnService)
+            jsch.setHostKeyRepository(SshHostKeyRepository(vpnService))
             val sshSession = jsch.getSession(config.username, config.host.trim(), config.port)
             sshSession.setPassword(config.password)
             sshSession.setConfig("StrictHostKeyChecking", "yes")
@@ -266,7 +266,7 @@ class SshTunnelEngine(
                             idsByDestination[key] = it
                             destinationById[it] = key
                         }
-                        var flags = if (existingId == null) UDPGW_FLAG_REBIND else 0
+                        var flags = 0
                         if (parsed.address.size == 16) flags = flags or UDPGW_FLAG_IPV6
                         if (parsed.port == 53) flags = flags or UDPGW_FLAG_DNS
                         synchronized(gatewayWriteLock) {
@@ -450,8 +450,9 @@ class SshTunnelEngine(
                     val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
                         .createSocket(raw, sni, connectPort, true) as SSLSocket
                     val parameters = ssl.sslParameters
-                    if (sni.matches(Regex("^[0-9.]+$")).not()) {
+                    if (!sni.matches(Regex("^[0-9.]+$"))) {
                         parameters.serverNames = listOf(SNIHostName(sni))
+                        parameters.endpointIdentificationAlgorithm = "HTTPS"
                     }
                     ssl.sslParameters = parameters
                     ssl.startHandshake()
