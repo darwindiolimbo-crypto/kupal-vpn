@@ -86,7 +86,7 @@ class SshTunnelEngine(
                 socks5:
                   address: 127.0.0.1
                   port: $LOCAL_SOCKS_PORT
-                  udp: 'tcp'
+                  udp: 'udp'
             """.trimIndent()
             val configFile = File(vpnService.filesDir, "hev-ssh-tunnel.yml")
             configFile.writeText(nativeConfig)
