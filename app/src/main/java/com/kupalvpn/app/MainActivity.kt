@@ -179,19 +179,17 @@ private fun KupalVpnApp(
         containerColor = Navy,
         bottomBar = {
             NavigationBar(containerColor = Color(0xD90B0B0E)) {
-                listOf("Home", "Profiles", "Config", "Payload", "Free Servers", "Ads").forEach { destination ->
+                listOf("Home", "Profiles", "Config", "Payload").forEach { destination ->
                     val icon = when (destination) {
                         "Home" -> Icons.Default.Home
                         "Profiles" -> Icons.Default.Settings
                         "Config" -> Icons.Default.Code
                         "Payload" -> Icons.Default.Tune
-                        "Free Servers" -> Icons.Default.Settings
                         else -> Icons.Default.Settings
                     }
                     NavigationBarItem(
                         selected = tab == destination,
                         onClick = {
-                            // An interstitial is never auto-shown just because a timer expires.
                             tab = destination
                         },
                         icon = { androidx.compose.material3.Icon(icon, contentDescription = destination) },
@@ -211,34 +209,7 @@ private fun KupalVpnApp(
             )
             "Profiles" -> ProfilesScreen(padding = padding)
             "Config" -> ConfigScreen(padding = padding)
-            "Payload" -> PayloadScreen(padding = padding)
-            "Free Servers" -> FreeServersScreen(padding = padding)
-            else -> AdsScreen(
-                padding = padding,
-                adsController = adsController,
-                previewConnected = previewConnected,
-                adsEnabled = adsEnabled,
-                remainingMillis = remaining,
-                vpnTimeMillis = vpnTimeBalance,
-                actionMessage = adActionMessage,
-                onEnabledChange = {
-                    adsEnabled = it
-                    LocalStore.setAdsEnabled(context, it)
-                },
-                onShowAd = {
-                    val activity = context as? Activity
-                    adActionMessage = if (activity == null) {
-                        "Could not access the Activity"
-                    } else {
-                        adsController.tryShowRewardedAd {
-                            LocalStore.grantVpnTime(context)
-                            vpnTimeBalance = LocalStore.remainingVpnMillis(context)
-                            adActionMessage = "Reward earned: +2 hours VPN time"
-                        }
-                    }
-                },
-                onPrivacyOptions = onPrivacyOptions
-            )
+            else -> PayloadScreen(padding = padding)
         }
     }
 }
@@ -396,39 +367,6 @@ private fun ConfigScreen(padding: PaddingValues) {
         Text("Use your own server values. Never share your UUID, password, or private keys publicly.", color = Color.LightGray, fontSize = 12.sp)
     }
 }
-
-@Composable
-private fun FreeServersScreen(padding: PaddingValues) {
-    val context = LocalContext.current
-    val subscription = "https://radarhub.top/v2ray.txt"
-    var message by rememberSaveable { mutableStateOf("Public subscription source. The app currently cannot import/connect until the Xray engine is integrated.") }
-
-    ScreenColumn(padding) {
-        Text("Free test servers", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Use public nodes temporarily for protocol and UI testing. Public nodes are run by unknown operators and can be unreliable.", color = Color.LightGray, fontSize = 13.sp)
-        SectionCard("Free V2Ray / Xray-compatible subscription") {
-            Text("Free Nodes Radar", fontWeight = FontWeight.SemiBold)
-            Text("Publicly collected VLESS, VMess, Trojan, and Shadowsocks nodes. The list is refreshed periodically; individual nodes may be offline or unsafe.", color = Color.LightGray, fontSize = 13.sp)
-            Text(subscription, color = Color(0xFF59B9E8), fontSize = 12.sp)
-            Button(onClick = {
-                val clipboard = context.getSystemService(ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(ClipData.newPlainText("Free V2Ray subscription", subscription))
-                message = "Subscription URL copied. Subscription importing is not implemented yet."
-            }, modifier = Modifier.fillMaxWidth()) { Text("Copy subscription URL") }
-            OutlinedButton(onClick = {
-                val clipboard = context.getSystemService(ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(ClipData.newPlainText("Free V2Ray subscription", subscription))
-                message = "Copied for use in a compatible VPN client."
-            }, modifier = Modifier.fillMaxWidth()) { Text("Copy for external VPN client") }
-        }
-        SectionCard("Safety reminder") {
-            Text("Avoid banking, email, or sensitive logins on unknown free servers. HTTPS protects webpage contents, but server operators may still observe connection metadata. These entries are not guaranteed to work in your region.", color = Color(0xFFFFD27A), fontSize = 12.sp)
-        }
-        Text(message, color = Green, fontSize = 12.sp)
-        Text("The free server subscription is a source link, not a live VPN connection inside Kupal VPN yet.", color = Color.LightGray, fontSize = 12.sp)
-    }
-}
-
 
 @Composable
 private fun PayloadScreen(padding: PaddingValues) {
