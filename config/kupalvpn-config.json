@@ -1,13 +1,34 @@
 {
   "schemaVersion": 1,
-  "configVersion": "2026.11.24.1",
+  "configVersion": "2026.11.24.2",
   "updatedAt": "2026-11-24",
   "notice": "Templates only. Enter your own authorized SSH/Xray server details. No VPN credentials or public relay servers are included.",
   "sshModes": [
-    { "id": "direct_tcp", "name": "Direct SSH", "description": "Connect directly to the SSH server." },
-    { "id": "http_payload_direct", "name": "HTTP Payload", "description": "Send an HTTP CONNECT-style payload to the SSH endpoint." },
-    { "id": "http_payload_proxy", "name": "HTTP Payload via Proxy", "description": "Connect to an HTTP proxy, then send the configured payload to the SSH server." },
-    { "id": "tls_payload_proxy", "name": "TLS + Payload", "description": "Establish TLS using SNI, then send the HTTP payload." }
+    {
+      "id": "direct_tcp",
+      "name": "Direct SSH",
+      "description": "Connect directly to the SSH server."
+    },
+    {
+      "id": "http_payload_direct",
+      "name": "HTTP Payload",
+      "description": "Send an HTTP CONNECT-style payload to the SSH endpoint."
+    },
+    {
+      "id": "http_payload_proxy",
+      "name": "HTTP Payload via Proxy",
+      "description": "Connect to an HTTP proxy, then send the configured payload to the SSH server."
+    },
+    {
+      "id": "tls_payload_direct",
+      "name": "TLS + SNI Direct",
+      "description": "Establish TLS to the SSH endpoint using SNI, then send the configured HTTP payload."
+    },
+    {
+      "id": "tls_payload_proxy",
+      "name": "TLS + Payload",
+      "description": "Establish TLS using SNI, then send the HTTP payload."
+    }
   ],
   "payloadTemplates": [
     {
@@ -27,12 +48,39 @@
       "name": "TLS + HTTP CONNECT",
       "mode": "tls_payload_proxy",
       "payload": "CONNECT [host_port] HTTP/1.1\\r\\nHost: [host_port]\\r\\nProxy-Connection: Keep-Alive\\r\\n\\r\\n"
+    },
+    {
+      "id": "tls_http_connect_direct",
+      "name": "TLS + HTTP CONNECT (Direct)",
+      "mode": "tls_payload_direct",
+      "payload": "CONNECT [host_port] HTTP/1.1\\r\\nHost: [host_port]\\r\\nProxy-Connection: Keep-Alive\\r\\n\\r\\n"
     }
   ],
   "dnsPresets": [
-    { "id": "cloudflare", "name": "Cloudflare", "ipv4": ["1.1.1.1", "1.0.0.1"] },
-    { "id": "google", "name": "Google", "ipv4": ["8.8.8.8", "8.8.4.4"] },
-    { "id": "quad9", "name": "Quad9", "ipv4": ["9.9.9.9", "149.112.112.112"] }
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "ipv4": [
+        "1.1.1.1",
+        "1.0.0.1"
+      ]
+    },
+    {
+      "id": "google",
+      "name": "Google",
+      "ipv4": [
+        "8.8.8.8",
+        "8.8.4.4"
+      ]
+    },
+    {
+      "id": "quad9",
+      "name": "Quad9",
+      "ipv4": [
+        "9.9.9.9",
+        "149.112.112.112"
+      ]
+    }
   ],
   "servers": [],
   "xrayProfiles": []
