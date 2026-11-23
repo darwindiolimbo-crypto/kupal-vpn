@@ -413,7 +413,8 @@ private fun ConfigScreen(padding: PaddingValues) {
                     SshConfig.MODE_DIRECT to "Direct TCP",
                     SshConfig.MODE_HTTP_PAYLOAD_DIRECT to "HTTP Payload",
                     SshConfig.MODE_HTTP_PAYLOAD_PROXY to "HTTP Payload Proxy",
-                    SshConfig.MODE_TLS_PAYLOAD_PROXY to "TLS + SNI Payload"
+                    SshConfig.MODE_TLS_PAYLOAD_DIRECT to "TLS + SNI Direct",
+                    SshConfig.MODE_TLS_PAYLOAD_PROXY to "TLS + SNI via Proxy"
                 )
                 modes.forEach { (value, label) ->
                     val selected = sshMode == value
@@ -435,7 +436,7 @@ private fun ConfigScreen(padding: PaddingValues) {
                     OutlinedTextField(proxyPort, { proxyPort = it.filter(Char::isDigit).take(5) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
             }
-            if (sshMode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
+            if (sshMode == SshConfig.MODE_TLS_PAYLOAD_DIRECT || sshMode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
                 SectionCard("TLS / SNI") {
                     OutlinedTextField(sniHost, { sniHost = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SNI host name") }, singleLine = true)
                 }
