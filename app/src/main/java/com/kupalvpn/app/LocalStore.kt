@@ -7,7 +7,9 @@ object LocalStore {
     private const val KEY_JSON = "xray_json_draft"
     private const val KEY_PAYLOAD = "payload_template"
     private const val KEY_ADS_ENABLED = "ads_timer_enabled"
-    private const val KEY_AD_CYCLE_START = "ads_timer_cycle_start"
+    private const val KEY_AD_LAST_SHOWN = "ads_last_shown"
+    private const val KEY_VPN_TIME_BALANCE = "vpn_time_balance_ms"
+    private const val KEY_VPN_TIME_STARTED = "vpn_time_started_at"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -28,19 +30,53 @@ object LocalStore {
     fun adsEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ADS_ENABLED, true)
     fun setAdsEnabled(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean(KEY_ADS_ENABLED, enabled).apply()
 
-    const val AD_REFRESH_INTERVAL_SECONDS = 10L
+    const val AD_COOLDOWN_SECONDS = 10L
+    const val VPN_REWARD_MILLIS = 2L * 60L * 60L * 1000L
 
-    fun adCycleStart(context: Context): Long {
-        val preferences = prefs(context)
-        val saved = preferences.getLong(KEY_AD_CYCLE_START, 0L)
-        if (saved != 0L) return saved
-        val now = System.currentTimeMillis()
-        preferences.edit().putLong(KEY_AD_CYCLE_START, now).apply()
-        return now
+    fun remainingAdCooldownMillis(context: Context): Long {
+        val lastShown = prefs(context).getLong(KEY_AD_LAST_SHOWN, 0L)
+        if (lastShown == 0L) return 0L
+        return (lastShown + AD_COOLDOWN_SECONDS * 1000L - System.currentTimeMillis()).coerceAtLeast(0L)
     }
 
-    fun resetAdCycle(context: Context) {
-        prefs(context).edit().putLong(KEY_AD_CYCLE_START, System.currentTimeMillis()).apply()
+    fun markAdShown(context: Context) {
+        prefs(context).edit().putLong(KEY_AD_LAST_SHOWN, System.currentTimeMillis()).apply()
+    }
+
+    fun remainingVpnMillis(context: Context): Long {
+        val p = prefs(context)
+        val balance = p.getLong(KEY_VPN_TIME_BALANCE, 0L).coerceAtLeast(0L)
+        val started = p.getLong(KEY_VPN_TIME_STARTED, 0L)
+        return if (started == 0L) balance else (balance - (System.currentTimeMillis() - started)).coerceAtLeast(0L)
+    }
+
+    fun grantVpnTime(context: Context, millis: Long = VPN_REWARD_MILLIS) {
+        val p = prefs(context)
+        val active = p.getLong(KEY_VPN_TIME_STARTED, 0L) != 0L
+        val updated = remainingVpnMillis(context) + millis
+        p.edit().putLong(KEY_VPN_TIME_BALANCE, updated)
+            .apply {
+                if (active) putLong(KEY_VPN_TIME_STARTED, System.currentTimeMillis())
+            }.apply()
+    }
+
+    fun startVpnTime(context: Context): Boolean {
+        val p = prefs(context)
+        if (remainingVpnMillis(context) <= 0L) return false
+        if (p.getLong(KEY_VPN_TIME_STARTED, 0L) == 0L) {
+            p.edit().putLong(KEY_VPN_TIME_STARTED, System.currentTimeMillis()).apply()
+        }
+        return true
+    }
+
+    fun pauseVpnTime(context: Context) {
+        val p = prefs(context)
+        val started = p.getLong(KEY_VPN_TIME_STARTED, 0L)
+        if (started != 0L) {
+            val remaining = remainingVpnMillis(context)
+            p.edit().putLong(KEY_VPN_TIME_BALANCE, remaining)
+                .remove(KEY_VPN_TIME_STARTED).apply()
+        }
     }
 
     private const val DEFAULT_JSON = """{
