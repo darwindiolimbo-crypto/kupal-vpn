@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.lang.reflect.Proxy
@@ -15,13 +17,30 @@ import org.json.JSONObject
 class KupalVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var coreClass: Class<*>? = null
+    private val vpnTimeHandler = Handler(Looper.getMainLooper())
+    private val vpnTimeTick = object : Runnable {
+        override fun run() {
+            if (tun == null) return
+            val remaining = LocalStore.remainingVpnMillis(this@KupalVpnService)
+            if (remaining <= 0L) {
+                updateNotification("VPN time expired")
+                stopTunnel()
+            } else {
+                updateNotification("VPN active · ${formatTime(remaining)} remaining")
+                vpnTimeHandler.postDelayed(this, 1_000L)
+            }
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> stopTunnel()
             ACTION_START -> {
                 val config = intent.getStringExtra(EXTRA_CONFIG)
-                if (config.isNullOrBlank()) {
+                if (LocalStore.remainingVpnMillis(this) <= 0L) {
+                    setState("error: Watch a rewarded ad to get 2 hours of VPN time")
+                    stopSelf()
+                } else if (config.isNullOrBlank()) {
                     setState("error: Missing Xray configuration")
                     stopSelf()
                 } else startTunnel(config)
@@ -63,12 +82,17 @@ class KupalVpnService : VpnService() {
 
             registerSocketProtection()
             invokeCore("runXray", JSONObject().put("xrayJson", config.toString()))
+            if (!LocalStore.startVpnTime(this)) error("VPN time credit expired before connection")
             setState("connected")
-            updateNotification("Kupal VPN is connected")
+            updateNotification("Kupal VPN connected · rewarded time active")
+            vpnTimeHandler.removeCallbacks(vpnTimeTick)
+            vpnTimeHandler.postDelayed(vpnTimeTick, 1_000L)
         } catch (error: Exception) {
             Log.e(TAG, "Unable to start Xray VPN", error)
             setState("error: ${error.message ?: error.javaClass.simpleName}")
             runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
+            vpnTimeHandler.removeCallbacks(vpnTimeTick)
+            LocalStore.pauseVpnTime(this)
             tun?.close()
             tun = null
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -125,6 +149,8 @@ class KupalVpnService : VpnService() {
         } catch (error: Exception) {
             Log.w(TAG, "Xray stop returned an error", error)
         } finally {
+            vpnTimeHandler.removeCallbacks(vpnTimeTick)
+            LocalStore.pauseVpnTime(this)
             try {
                 runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
                 .onFailure { Log.w(TAG, "Could not reset Xray DNS resolver", it) }
@@ -175,6 +201,13 @@ class KupalVpnService : VpnService() {
 
     private fun setState(state: String) {
         getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit().putString(STATE_KEY, state).apply()
+    }
+
+    private fun formatTime(milliseconds: Long): String {
+        val seconds = (milliseconds / 1_000L).coerceAtLeast(0L)
+        val hours = seconds / 3_600L
+        val minutes = (seconds % 3_600L) / 60L
+        return String.format(java.util.Locale.US, "%02d:%02d", hours, minutes)
     }
 
     companion object {
