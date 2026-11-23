@@ -188,13 +188,12 @@ private fun KupalVpnApp(
                         "Profiles" -> Icons.Default.Settings
                         "Config" -> Icons.Default.Code
                         "Payload" -> Icons.Default.Tune
-                        "Free Servers" -> Icons.Default.Settings
                         else -> Icons.Default.Settings
                     }
                     NavigationBarItem(
                         selected = tab == destination,
                         onClick = {
-                            // An interstitial is never auto-shown just because a timer expires.
+                            // Section navigation does not trigger ads.
                             tab = destination
                         },
                         icon = { androidx.compose.material3.Icon(icon, contentDescription = destination) },
