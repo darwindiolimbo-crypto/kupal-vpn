@@ -38,13 +38,14 @@ class KupalVpnService : VpnService() {
             ACTION_STOP -> stopTunnel()
             ACTION_START -> {
                 val config = intent.getStringExtra(EXTRA_CONFIG)
+                val selectedMode = TunnelModeStore.readMode(this)
                 if (LocalStore.remainingVpnMillis(this) <= 0L) {
                     setState("error: Watch a rewarded ad to get 2 hours of VPN time")
                     stopSelf()
-                } else if (config.isNullOrBlank()) {
+                } else if (selectedMode != TunnelModeStore.MODE_SSH && config.isNullOrBlank()) {
                     setState("error: Missing Xray configuration")
                     stopSelf()
-                } else startTunnel(config)
+                } else startTunnel(config.orEmpty())
             }
         }
         return START_NOT_STICKY
@@ -92,7 +93,7 @@ class KupalVpnService : VpnService() {
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
             vpnTimeHandler.postDelayed(vpnTimeTick, 1_000L)
         } catch (error: Exception) {
-            Log.e(TAG, "Unable to start Xray VPN", error)
+            Log.e(TAG, "Unable to start VPN tunnel", error)
             setState("error: ${error.message ?: error.javaClass.simpleName}")
             runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
             runCatching { sshTunnel?.stop() }
