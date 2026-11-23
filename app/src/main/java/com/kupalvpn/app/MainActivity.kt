@@ -56,6 +56,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,9 +69,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.Locale
 
@@ -179,7 +182,7 @@ private fun KupalVpnApp(
         containerColor = Navy,
         bottomBar = {
             NavigationBar(containerColor = Color(0xD90B0B0E)) {
-                listOf("Home", "Profiles", "Config", "Payload", "Free Servers", "Ads").forEach { destination ->
+                listOf("Home", "Profiles", "Config", "Payload", "Settings").forEach { destination ->
                     val icon = when (destination) {
                         "Home" -> Icons.Default.Home
                         "Profiles" -> Icons.Default.Settings
@@ -207,38 +210,27 @@ private fun KupalVpnApp(
                 previewConnected = previewConnected,
                 onPreviewConnectionChange = { requestVpnToggle() },
                 vpnStatus = vpnState,
-                vpnTimeMillis = vpnTimeBalance
+                vpnTimeMillis = vpnTimeBalance,
+                adsController = adsController,
+                adsEnabled = adsEnabled,
+                adCooldownMillis = remaining,
+                adActionMessage = adActionMessage,
+                onAdsEnabledChange = {
+                    adsEnabled = it
+                    LocalStore.setAdsEnabled(context, it)
+                },
+                onWatchAd = {
+                    adActionMessage = adsController.tryShowRewardedAd {
+                        LocalStore.grantVpnTime(context)
+                        vpnTimeBalance = LocalStore.remainingVpnMillis(context)
+                        adActionMessage = "Reward earned: +2 hours VPN time"
+                    }
+                }
             )
             "Profiles" -> ProfilesScreen(padding = padding)
             "Config" -> ConfigScreen(padding = padding)
             "Payload" -> PayloadScreen(padding = padding)
-            "Free Servers" -> FreeServersScreen(padding = padding)
-            else -> AdsScreen(
-                padding = padding,
-                adsController = adsController,
-                previewConnected = previewConnected,
-                adsEnabled = adsEnabled,
-                remainingMillis = remaining,
-                vpnTimeMillis = vpnTimeBalance,
-                actionMessage = adActionMessage,
-                onEnabledChange = {
-                    adsEnabled = it
-                    LocalStore.setAdsEnabled(context, it)
-                },
-                onShowAd = {
-                    val activity = context as? Activity
-                    adActionMessage = if (activity == null) {
-                        "Could not access the Activity"
-                    } else {
-                        adsController.tryShowRewardedAd {
-                            LocalStore.grantVpnTime(context)
-                            vpnTimeBalance = LocalStore.remainingVpnMillis(context)
-                            adActionMessage = "Reward earned: +2 hours VPN time"
-                        }
-                    }
-                },
-                onPrivacyOptions = onPrivacyOptions
-            )
+            else -> SettingsScreen(padding = padding, onPrivacyOptions = onPrivacyOptions)
         }
     }
 }
