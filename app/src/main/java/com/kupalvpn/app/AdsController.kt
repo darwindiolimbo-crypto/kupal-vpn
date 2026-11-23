@@ -48,7 +48,7 @@ class AdsController(private val activity: Activity) {
         Thread {
             MobileAds.initialize(activity) {
                 activity.runOnUiThread {
-                    lastStatus = "AdMob initialized (rewarded test ads)"
+                    lastStatus = "AdMob initialized (rewarded ads)"
                     loadRewardedAd()
                 }
             }
@@ -59,7 +59,7 @@ class AdsController(private val activity: Activity) {
         if (!initialized || rewardedAd != null) return
         RewardedAd.load(
             activity,
-            TEST_REWARDED_AD_UNIT_ID,
+            REWARDED_AD_UNIT_ID,
             AdRequest.Builder().build(),
             object : RewardedAdLoadCallback() {
                 override fun onAdLoaded(ad: RewardedAd) {
