@@ -206,7 +206,8 @@ private fun KupalVpnApp(
                 padding = padding,
                 previewConnected = previewConnected,
                 onPreviewConnectionChange = { requestVpnToggle() },
-                vpnStatus = vpnState
+                vpnStatus = vpnState,
+                vpnTimeMillis = vpnTimeBalance
             )
             "Profiles" -> ProfilesScreen(padding = padding)
             "Config" -> ConfigScreen(padding = padding)
@@ -260,7 +261,8 @@ private fun HomeScreen(
     padding: PaddingValues,
     previewConnected: Boolean,
     onPreviewConnectionChange: (Boolean) -> Unit,
-    vpnStatus: String
+    vpnStatus: String,
+    vpnTimeMillis: Long
 ) {
     ScreenColumn(padding) {
         Text("KUPAL VPN", fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -272,6 +274,7 @@ private fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(vpnStatus.uppercase(), color = if (previewConnected) Green else Color.LightGray)
+                Text("VPN time: ${formatCountdown(vpnTimeMillis)}", color = if (vpnTimeMillis > 0L) Green else Color(0xFFFFD27A), fontWeight = FontWeight.SemiBold)
                 Image(
                     painter = painterResource(
                         if (previewConnected) R.drawable.connected_status_button
@@ -280,13 +283,14 @@ private fun HomeScreen(
                     contentDescription = if (previewConnected) "VPN connected. Tap to disconnect." else "VPN disconnected. Tap to connect.",
                     modifier = Modifier
                         .size(188.dp)
-                        .clickable { onPreviewConnectionChange(!previewConnected) }
+                        .clickable(enabled = previewConnected || vpnTimeMillis > 0L) { onPreviewConnectionChange(!previewConnected) }
                 )
                 Button(
                     onClick = { onPreviewConnectionChange(!previewConnected) },
+                    enabled = previewConnected || vpnTimeMillis > 0L,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(if (previewConnected) "Disconnect VPN" else "Connect VPN")
+                    Text(if (previewConnected) "Disconnect VPN" else if (vpnTimeMillis > 0L) "Connect VPN" else "Watch ads to earn VPN time")
                 }
                 Text(
                     "Powered by Xray-core through Android VpnService. Select a valid server configuration before connecting.",
