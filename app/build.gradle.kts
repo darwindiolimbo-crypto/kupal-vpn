@@ -42,6 +42,8 @@ dependencies {
     androidTestImplementation(composeBom)
 
     implementation(files("libs/libXray.aar"))
+    implementation(files("libs/hev-socks5-tunnel.aar"))
+    implementation("com.github.mwiede:jsch:2.28.8")
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
