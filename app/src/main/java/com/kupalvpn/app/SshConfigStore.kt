@@ -24,7 +24,7 @@ data class SshConfig(
             require(proxyPort in 1..65535) { "HTTP proxy port must be 1-65535" }
         }
         if (mode != MODE_DIRECT) require(payload.isNotBlank()) { "HTTP payload is required for this mode" }
-        if (mode == MODE_TLS_PAYLOAD_PROXY) require(sniHost.isNotBlank()) { "TLS SNI host is required" }
+        if (mode == MODE_TLS_PAYLOAD_DIRECT || mode == MODE_TLS_PAYLOAD_PROXY) require(sniHost.isNotBlank()) { "TLS SNI host is required" }
         require(udpGatewayPort in 0..65535) { "UDP gateway port must be 0-65535 (0 disables UDP relay)" }
     }
 
@@ -32,6 +32,7 @@ data class SshConfig(
         const val MODE_DIRECT = "direct_tcp"
         const val MODE_HTTP_PAYLOAD_DIRECT = "http_payload_direct"
         const val MODE_HTTP_PAYLOAD_PROXY = "http_payload_proxy"
+        const val MODE_TLS_PAYLOAD_DIRECT = "tls_payload_direct"
         const val MODE_TLS_PAYLOAD_PROXY = "tls_payload_proxy"
     }
 }
