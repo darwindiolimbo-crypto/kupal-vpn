@@ -3,9 +3,12 @@ package com.kupalvpn.app
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
+import android.net.VpnService
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +52,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -111,7 +115,46 @@ private fun KupalVpnApp(
 ) {
     val context = LocalContext.current
     var tab by rememberSaveable { mutableStateOf("Home") }
-    var previewConnected by rememberSaveable { mutableStateOf(false) }
+    var vpnState by remember { mutableStateOf(
+        context.getSharedPreferences(KupalVpnService.STATE_PREFS, android.content.Context.MODE_PRIVATE)
+            .getString(KupalVpnService.STATE_KEY, "disconnected") ?: "disconnected"
+    ) }
+    var pendingVpnConfig by remember { mutableStateOf<String?>(null) }
+    val vpnPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val config = pendingVpnConfig
+        pendingVpnConfig = null
+        if (result.resultCode == Activity.RESULT_OK && config != null) {
+            val serviceIntent = Intent(context, KupalVpnService::class.java)
+                .setAction(KupalVpnService.ACTION_START)
+                .putExtra(KupalVpnService.EXTRA_CONFIG, config)
+            if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent)
+            else context.startService(serviceIntent)
+        }
+    }
+    val previewConnected = vpnState == "connected" || vpnState == "connecting"
+    fun requestVpnToggle() {
+        if (previewConnected) {
+            context.startService(Intent(context, KupalVpnService::class.java).setAction(KupalVpnService.ACTION_STOP))
+        } else {
+            pendingVpnConfig = LocalStore.readJson(context)
+            val permissionIntent = VpnService.prepare(context)
+            if (permissionIntent == null) {
+                val serviceIntent = Intent(context, KupalVpnService::class.java)
+                    .setAction(KupalVpnService.ACTION_START)
+                    .putExtra(KupalVpnService.EXTRA_CONFIG, pendingVpnConfig)
+                if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent)
+                else context.startService(serviceIntent)
+                pendingVpnConfig = null
+            } else vpnPermissionLauncher.launch(permissionIntent)
+        }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            vpnState = context.getSharedPreferences(KupalVpnService.STATE_PREFS, android.content.Context.MODE_PRIVATE)
+                .getString(KupalVpnService.STATE_KEY, "disconnected") ?: "disconnected"
+            delay(500)
+        }
+    }
     var adsEnabled by rememberSaveable { mutableStateOf(LocalStore.adsEnabled(context)) }
     var remaining by remember { mutableLongStateOf(adsController.remainingMillis()) }
     var adActionMessage by rememberSaveable { mutableStateOf("") }
@@ -153,7 +196,8 @@ private fun KupalVpnApp(
             "Home" -> HomeScreen(
                 padding = padding,
                 previewConnected = previewConnected,
-                onPreviewConnectionChange = { previewConnected = it }
+                onPreviewConnectionChange = { requestVpnToggle() },
+                vpnStatus = vpnState
             )
             "Profiles" -> ProfilesScreen(padding = padding)
             "Config" -> ConfigScreen(padding = padding)
@@ -201,7 +245,8 @@ private fun ScreenColumn(padding: PaddingValues, content: @Composable () -> Unit
 private fun HomeScreen(
     padding: PaddingValues,
     previewConnected: Boolean,
-    onPreviewConnectionChange: (Boolean) -> Unit
+    onPreviewConnectionChange: (Boolean) -> Unit,
+    vpnStatus: String
 ) {
     ScreenColumn(padding) {
         Text("KUPAL VPN", fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -212,7 +257,7 @@ private fun HomeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(if (previewConnected) "PREVIEW CONNECTED" else "DISCONNECTED", color = if (previewConnected) Green else Color.LightGray)
+                Text(vpnStatus.uppercase(), color = if (previewConnected) Green else Color.LightGray)
                 Box(
                     modifier = Modifier.size(128.dp),
                     contentAlignment = Alignment.Center
@@ -231,10 +276,10 @@ private fun HomeScreen(
                     onClick = { onPreviewConnectionChange(!previewConnected) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(if (previewConnected) "Disconnect preview" else "Connect preview")
+                    Text(if (previewConnected) "Disconnect VPN" else "Connect VPN")
                 }
                 Text(
-                    "UI preview only. The Xray tunnel engine is not connected in this starter project.",
+                    "Powered by Xray-core through Android VpnService. Select a valid server configuration before connecting.",
                     color = Color(0xFFFFD27A),
                     fontSize = 12.sp
                 )
