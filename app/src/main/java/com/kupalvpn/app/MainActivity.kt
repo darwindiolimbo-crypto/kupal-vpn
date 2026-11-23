@@ -164,11 +164,13 @@ private fun KupalVpnApp(
     }
     var adsEnabled by rememberSaveable { mutableStateOf(LocalStore.adsEnabled(context)) }
     var remaining by remember { mutableLongStateOf(adsController.remainingMillis()) }
+    var vpnTimeBalance by remember { mutableLongStateOf(LocalStore.remainingVpnMillis(context)) }
     var adActionMessage by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(adsEnabled) {
         while (true) {
             remaining = adsController.remainingMillis()
+            vpnTimeBalance = LocalStore.remainingVpnMillis(context)
             delay(1_000)
         }
     }
@@ -216,6 +218,7 @@ private fun KupalVpnApp(
                 previewConnected = previewConnected,
                 adsEnabled = adsEnabled,
                 remainingMillis = remaining,
+                vpnTimeMillis = vpnTimeBalance,
                 actionMessage = adActionMessage,
                 onEnabledChange = {
                     adsEnabled = it
@@ -226,7 +229,11 @@ private fun KupalVpnApp(
                     adActionMessage = if (activity == null) {
                         "Could not access the Activity"
                     } else {
-                        adsController.tryShowDueInterstitial(previewConnected)
+                        adsController.tryShowRewardedAd {
+                            LocalStore.grantVpnTime(context)
+                            vpnTimeBalance = LocalStore.remainingVpnMillis(context)
+                            adActionMessage = "Reward earned: +2 hours VPN time"
+                        }
                     }
                 },
                 onPrivacyOptions = onPrivacyOptions
@@ -296,7 +303,7 @@ private fun HomeScreen(
         SectionCard("Included modules") {
             Text("• Xray JSON editor with syntax validation")
             Text("• HTTP payload template editor and preview")
-            Text("• Timer-gated AdMob test interstitial")
+            Text("• Rewarded ads unlock VPN time (2 hours per completed ad)")
             Text("• UMP privacy consent and privacy options entry point")
         }
     }
@@ -498,48 +505,46 @@ private fun AdsScreen(
     previewConnected: Boolean,
     adsEnabled: Boolean,
     remainingMillis: Long,
+    vpnTimeMillis: Long,
     actionMessage: String,
     onEnabledChange: (Boolean) -> Unit,
     onShowAd: () -> Unit,
     onPrivacyOptions: () -> Unit
 ) {
-    val due = remainingMillis <= 0L
+    val adReady = remainingMillis <= 0L
     ScreenColumn(padding) {
-        Text("Google Ads timer", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Timer-gated interstitials with a minimum cooldown and a safe display point.", color = Color.LightGray, fontSize = 13.sp)
-        SectionCard("Ad schedule") {
+        Text("Earn VPN time", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Watch a rewarded video to unlock free VPN usage.", color = Color.LightGray, fontSize = 13.sp)
+        SectionCard("VPN time balance") {
+            Text(formatCountdown(vpnTimeMillis), fontSize = 32.sp, color = if (vpnTimeMillis > 0L) Green else Color.White, fontWeight = FontWeight.Bold)
+            Text("Available VPN time", color = Color.LightGray, fontSize = 12.sp)
+            Text("Each completed rewarded ad adds 2 hours. VPN time is consumed only while connected and disconnects automatically when the time runs out.", fontSize = 12.sp, color = Color.LightGray)
+        }
+        SectionCard("Watch an ad") {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
-                    Text("Enable timed ads", fontWeight = FontWeight.SemiBold)
-                    Text(if (adsEnabled) "Timer is enabled" else "Timer is paused", fontSize = 12.sp, color = Color.LightGray)
+                    Text("Rewarded videos", fontWeight = FontWeight.SemiBold)
+                    Text(if (adsEnabled) "Rewards enabled" else "Rewards paused", fontSize = 12.sp, color = Color.LightGray)
                 }
                 Switch(checked = adsEnabled, onCheckedChange = onEnabledChange)
             }
             Divider(color = Color(0xFF33485E))
-            Text("Ad refresh interval: 10 seconds", fontWeight = FontWeight.SemiBold)
-            Text("The timer makes a test interstitial eligible every 10 seconds. Ads are not forced automatically; tap the button when ready.", fontSize = 12.sp, color = Color.LightGray)
-            Text("For production, use a much longer interval and follow AdMob frequency and placement policies.", fontSize = 12.sp, color = Color(0xFFFFD27A))
-        }
-        SectionCard("Next eligible ad") {
-            Text(
-                if (!adsEnabled) "PAUSED" else if (due) "AD READY" else formatCountdown(remainingMillis),
-                fontSize = 28.sp,
-                color = if (due && adsEnabled) Green else Color.White,
-                fontWeight = FontWeight.Bold
-            )
-            Text("VPN status: ${if (previewConnected) "CONNECTED (preview)" else "DISCONNECTED (preview)"}", fontSize = 12.sp, color = Color.LightGray)
-            Text("An interstitial is refused while the VPN state is connected. The real app should call this at a natural transition after the Xray service reports disconnected.", fontSize = 12.sp, color = Color.LightGray)
-            Button(onClick = onShowAd, enabled = adsEnabled && due && !previewConnected) {
-                Text("Show eligible test ad")
+            Text("Reward per completed ad", fontWeight = FontWeight.SemiBold)
+            Text("+02:00:00 VPN time", fontSize = 24.sp, color = Green)
+            Text("Next ad: ${if (!adsEnabled) "PAUSED" else if (adReady) "READY" else formatCountdown(remainingMillis)}", fontSize = 13.sp, color = if (adReady && adsEnabled) Green else Color.LightGray)
+            Text("A 10-second cooldown applies after each ad starts. Ads are optional and rewards are granted only after AdMob confirms completion.", fontSize = 12.sp, color = Color.LightGray)
+            Button(onClick = onShowAd, enabled = adsEnabled && adReady, modifier = Modifier.fillMaxWidth()) {
+                Text("Watch ad · Earn 2 hours")
             }
             if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
             Text("Ad status: ${adsController.lastStatus}", fontSize = 11.sp, color = Color.LightGray)
         }
+        Text("VPN connection: ${if (previewConnected) "CONNECTED" else "DISCONNECTED"}", fontSize = 12.sp, color = Color.LightGray)
         OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) {
             Text("Privacy & consent options")
         }
         Text(
-            "Development uses Google's test App ID and test interstitial unit. Replace both with your own AdMob IDs and configure your consent messages before release.",
+            "Development uses Google's rewarded-video test ad unit. Replace it with your AdMob rewarded unit ID before release.",
             color = Color(0xFFFFD27A),
             fontSize = 12.sp
         )
