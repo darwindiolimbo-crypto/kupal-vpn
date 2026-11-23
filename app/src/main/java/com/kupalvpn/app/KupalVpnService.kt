@@ -32,20 +32,31 @@ class KupalVpnService : VpnService() {
 
     private fun startTunnel(configText: String) {
         if (tun != null) return
+        setState("connecting")
         try {
             startForeground(NOTIFICATION_ID, notification("Starting secure tunnel"))
             val builder = Builder()
                 .setSession("Kupal VPN")
                 .setMtu(1500)
                 .addAddress("10.77.0.1", 30)
+                .addAddress("fd77:77::1", 126)
                 .addDnsServer("1.1.1.1")
+                .addDnsServer("2606:4700:4700::1111")
                 .addRoute("0.0.0.0", 0)
+                .addRoute("::", 0)
             if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
             tun = builder.establish() ?: error("Android did not create the VPN interface")
 
             val config = JSONObject(configText)
             val env = config.optJSONObject("env") ?: JSONObject().also { config.put("env", it) }
             env.put("xray.tun.fd", tun!!.fd)
+            val inbounds = config.optJSONArray("inbounds") ?: org.json.JSONArray().also { config.put("inbounds", it) }
+            val tunInbound = JSONObject()
+                .put("tag", "kupal-tun-in")
+                .put("protocol", "tun")
+                .put("settings", JSONObject().put("mtu", 1500))
+            val existingTun = (0 until inbounds.length()).firstOrNull { inbounds.optJSONObject(it)?.optString("protocol") == "tun" }
+            if (existingTun == null) inbounds.put(tunInbound) else inbounds.put(existingTun, tunInbound)
 
             registerSocketProtection()
             invokeCore("runXray", JSONObject().put("xrayJson", config.toString()))
