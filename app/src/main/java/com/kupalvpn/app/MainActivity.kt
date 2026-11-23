@@ -277,7 +277,8 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun ConfigScreen(padding: PaddingValues) {
     val context = LocalContext.current
-    var jsonText by rememberSaveable { mutableStateOf(LocalStore.readJson(context)) }
+    val profileId = ProfileStore.activeProfileId(context)
+    var jsonText by rememberSaveable(profileId) { mutableStateOf(LocalStore.readJson(context)) }
     var validation by rememberSaveable { mutableStateOf("Draft not validated") }
 
     ScreenColumn(padding) {
@@ -351,7 +352,8 @@ private fun FreeServersScreen(padding: PaddingValues) {
 @Composable
 private fun PayloadScreen(padding: PaddingValues) {
     val context = LocalContext.current
-    var payload by rememberSaveable { mutableStateOf(LocalStore.readPayload(context)) }
+    val profileId = ProfileStore.activeProfileId(context)
+    var payload by rememberSaveable(profileId) { mutableStateOf(LocalStore.readPayload(context)) }
     var host by rememberSaveable { mutableStateOf("your-proxy.example.com") }
     var port by rememberSaveable { mutableStateOf("443") }
     var result by rememberSaveable { mutableStateOf("Payload template loaded") }
