@@ -47,7 +47,10 @@ class KupalVpnService : VpnService() {
             if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
             tun = builder.establish() ?: error("Android did not create the VPN interface")
 
+            val mode = TunnelModeStore.readMode(this)
+            if (mode == TunnelModeStore.MODE_SSH) error("SSH tunnel engine is not installed yet. SSH mode settings are saved, but SSH connection support is pending.")
             val config = JSONObject(configText)
+            if (mode == TunnelModeStore.MODE_HTTP) TunnelModeStore.applyHttpProxy(this, config)
             val env = config.optJSONObject("env") ?: JSONObject().also { config.put("env", it) }
             env.put("xray.tun.fd", tun!!.fd.toString())
             val inbounds = config.optJSONArray("inbounds") ?: org.json.JSONArray().also { config.put("inbounds", it) }
@@ -85,10 +88,8 @@ class KupalVpnService : VpnService() {
             } else false
         }
         method.invoke(null, callback)
-        val setDns = clazz.methods.firstOrNull { it.name == "setDNS" && it.parameterTypes.size == 2 } ?: error("libXray DNS API is missing")
-        setDns.invoke(null, callback, "1.1.1.1:53")
         val setDns = clazz.methods.firstOrNull { it.name == "setDNS" && it.parameterTypes.size == 2 }
-            ?: error("libXray DNS protection API is missing")
+            ?: error("libXray DNS API is missing")
         setDns.invoke(null, callback, "1.1.1.1:53")
     }
 
@@ -130,7 +131,6 @@ class KupalVpnService : VpnService() {
             } catch (dnsError: Exception) {
                 Log.w(TAG, "Could not reset Xray DNS resolver", dnsError)
             }
-            coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null)
             tun?.close()
             tun = null
             setState("disconnected")
