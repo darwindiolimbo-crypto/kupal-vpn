@@ -84,18 +84,18 @@ class AdsController(private val activity: Activity) {
         )
     }
 
-    fun remainingMillis(intervalMinutes: Int): Long {
-        val dueAt = LocalStore.adCycleStart(activity) + intervalMinutes.coerceIn(15, 120) * 60_000L
+    fun remainingMillis(): Long {
+        val dueAt = LocalStore.adCycleStart(activity) + LocalStore.AD_REFRESH_INTERVAL_SECONDS * 1_000L
         return (dueAt - System.currentTimeMillis()).coerceAtLeast(0L)
     }
 
-    fun isAdDue(intervalMinutes: Int): Boolean = remainingMillis(intervalMinutes) == 0L
+    fun isAdDue(): Boolean = remainingMillis() == 0L
 
     /** Returns a user-readable result. This method never shows an ad over an active VPN. */
-    fun tryShowDueInterstitial(vpnConnected: Boolean, intervalMinutes: Int): String {
+    fun tryShowDueInterstitial(vpnConnected: Boolean): String {
         if (!LocalStore.adsEnabled(activity)) return "Ad timer is turned off"
         if (vpnConnected) return "Disconnect the VPN before showing an interstitial"
-        if (!isAdDue(intervalMinutes)) return "The ad timer has not finished yet"
+        if (!isAdDue()) return "The ad timer has not finished yet"
         if (!initialized) return "AdMob is still initializing or consent is unavailable"
 
         val ad = interstitialAd
