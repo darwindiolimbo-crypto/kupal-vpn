@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
@@ -60,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -258,20 +261,16 @@ private fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(vpnStatus.uppercase(), color = if (previewConnected) Green else Color.LightGray)
-                Box(
-                    modifier = Modifier.size(128.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    androidx.compose.material3.Surface(
-                        modifier = Modifier.size(116.dp),
-                        shape = CircleShape,
-                        color = if (previewConnected) Color(0xFF176B52) else Color(0xFF19334D)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text("⏻", fontSize = 54.sp, color = Color.White)
-                        }
-                    }
-                }
+                Image(
+                    painter = painterResource(
+                        if (previewConnected) R.drawable.connected_status_button
+                        else R.drawable.disconnected_status_button
+                    ),
+                    contentDescription = if (previewConnected) "VPN connected. Tap to disconnect." else "VPN disconnected. Tap to connect.",
+                    modifier = Modifier
+                        .size(188.dp)
+                        .clickable { onPreviewConnectionChange(!previewConnected) }
+                )
                 Button(
                     onClick = { onPreviewConnectionChange(!previewConnected) },
                     modifier = Modifier.fillMaxWidth()
