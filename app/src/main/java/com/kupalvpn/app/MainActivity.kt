@@ -510,70 +510,129 @@ private fun ConfigScreen(padding: PaddingValues) {
 private fun PayloadScreen(padding: PaddingValues) {
     val context = LocalContext.current
     val profileId = ProfileStore.activeProfileId(context)
-    var payload by rememberSaveable(profileId) { mutableStateOf(LocalStore.readPayload(context)) }
-    var host by rememberSaveable { mutableStateOf("your-proxy.example.com") }
-    var port by rememberSaveable { mutableStateOf("443") }
-    var result by rememberSaveable { mutableStateOf("Payload template loaded") }
+    val scope = rememberCoroutineScope()
+    var payload by rememberSaveable(profileId) { mutableStateOf(SshConfigStore.read(context).payload) }
+    var host by rememberSaveable(profileId) { mutableStateOf(SshConfigStore.read(context).host) }
+    var port by rememberSaveable(profileId) { mutableStateOf(SshConfigStore.read(context).port.toString()) }
+    var result by rememberSaveable(profileId) { mutableStateOf("SSH payload editor ready") }
+    var updating by remember { mutableStateOf(false) }
+    var templates by remember(profileId) { mutableStateOf(loadRemotePayloadTemplates(context)) }
 
     val preview = payload
-        .replace("[host_port]", "$host:$port")
+        .replace("[host_port]", if (host.contains(':') && !host.startsWith("[")) "[$host]:$port" else "$host:$port")
         .replace("[host]", host)
         .replace("[port]", port)
         .replace("[crlf]", "\r\n")
+        .replace("\\r\\n", "\r\n")
+        .replace("\\n", "\r\n")
 
     ScreenColumn(padding) {
-        Text("Payload & setup editor", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text(
-            "Create and save HTTP request templates. These are separate from Xray transport settings; they are not automatically injected into VLESS/VMess/Trojan.",
-            color = Color.LightGray,
-            fontSize = 13.sp
-        )
-        OutlinedTextField(
-            value = payload,
-            onValueChange = {
-                payload = it
-                LocalStore.writePayload(context, it)
-                result = "Draft updated"
-            },
-            modifier = Modifier.fillMaxWidth().height(230.dp),
-            label = { Text("HTTP payload template") },
-            minLines = 8,
-            maxLines = 14,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
-        )
-        Text("Supported placeholders: [host], [port], [host_port], [crlf]", color = Green, fontSize = 12.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("SSH payload studio", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("HTTP payloads are used by the SSH connection engine. They are not a separate HTTP VPN mode.", color = Color.LightGray, fontSize = 13.sp)
+        SectionCard("GitHub payload catalog") {
+            Text("Download the latest safe templates and DNS presets from the Kupal VPN config repository.", color = Color.LightGray, fontSize = 12.sp)
+            Button(
+                onClick = {
+                    scope.launch {
+                        updating = true
+                        result = "Checking GitHub for configuration updates…"
+                        try {
+                            result = RemoteConfigStore.update(context)
+                            templates = loadRemotePayloadTemplates(context)
+                        } catch (error: Exception) {
+                            result = error.message ?: "Config update failed"
+                        } finally {
+                            updating = false
+                        }
+                    }
+                },
+                enabled = !updating,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (updating) "Updating…" else "Update templates from GitHub") }
+            OutlinedButton(
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(RemoteConfigStore.EDIT_URL)))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Edit payload catalog on GitHub") }
+            if (templates.isEmpty()) {
+                Text("No remote templates cached yet. Tap Update templates from GitHub.", fontSize = 12.sp, color = Color.LightGray)
+            } else {
+                templates.forEach { (name, template) ->
+                    OutlinedButton(
+                        onClick = {
+                            payload = template
+                            val current = SshConfigStore.read(context)
+                            SshConfigStore.save(context, current.copy(payload = template))
+                            result = "Loaded template: $name"
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("＋ $name") }
+                }
+            }
+        }
+        SectionCard("Request payload") {
+            OutlinedTextField(
+                value = payload,
+                onValueChange = {
+                    payload = it
+                    val current = SshConfigStore.read(context)
+                    SshConfigStore.save(context, current.copy(payload = it))
+                    result = "Draft saved for the active profile"
+                },
+                modifier = Modifier.fillMaxWidth().height(220.dp),
+                label = { Text("HTTP / CONNECT payload") },
+                minLines = 7,
+                maxLines = 14,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
+            )
+            Text("Tokens: [host], [port], [host_port], [crlf]", color = Green, fontSize = 12.sp)
+        }
+        SectionCard("Preview target") {
             OutlinedTextField(
                 value = host,
                 onValueChange = { host = it },
-                modifier = Modifier.weight(1f),
-                label = { Text("Host") },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("SSH server host") },
                 singleLine = true
             )
             OutlinedTextField(
                 value = port,
                 onValueChange = { port = it.filter(Char::isDigit).take(5) },
-                modifier = Modifier.width(104.dp),
-                label = { Text("Port") },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("SSH server port") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
+            Text("Preview only. The live SSH endpoint is saved from Config → SSH server.", fontSize = 11.sp, color = Color.LightGray)
         }
-        SectionCard("Preview") {
+        SectionCard("Rendered payload") {
             Text(preview.replace("\r", "\\r").replace("\n", "\\n\n"), fontSize = 11.sp, color = Color(0xFFB8D8EF))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = {
-                LocalStore.writePayload(context, payload)
-                result = "Payload template saved on this device"
-            }) { Text("Save template") }
+                val current = SshConfigStore.read(context)
+                SshConfigStore.save(context, current.copy(payload = payload))
+                result = "Payload saved to the active SSH profile"
+            }, modifier = Modifier.weight(1f)) { Text("Save") }
             OutlinedButton(onClick = {
-                payload = "CONNECT [host_port] HTTP/1.1[crlf]\nHost: [host][crlf]\nUser-Agent: KupalVPN/1.0[crlf]\nProxy-Connection: keep-alive[crlf][crlf]"
-                LocalStore.writePayload(context, payload)
-                result = "Default template restored"
-            }) { Text("Reset") }
+                payload = SshConfigStore.DEFAULT_PAYLOAD
+                val current = SshConfigStore.read(context)
+                SshConfigStore.save(context, current.copy(payload = payload))
+                result = "Default HTTP CONNECT template restored"
+            }, modifier = Modifier.weight(1f)) { Text("Reset") }
         }
-        Text(result, color = Green, fontSize = 12.sp)
+        Text(result, color = if (result.contains("failed", true)) Color(0xFFFFD27A) else Green, fontSize = 12.sp)
+    }
+}
+
+private fun loadRemotePayloadTemplates(context: android.content.Context): List<Pair<String, String>> {
+    val array = RemoteConfigStore.read(context).optJSONArray("payloadTemplates") ?: return emptyList()
+    return (0 until array.length()).mapNotNull { index ->
+        val item = array.optJSONObject(index) ?: return@mapNotNull null
+        val name = item.optString("name")
+        val payload = item.optString("payload")
+        if (name.isBlank() || payload.isBlank()) null else name to payload
     }
 }
 
