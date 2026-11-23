@@ -12,11 +12,18 @@ object LocalStore {
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
-    fun readJson(context: Context): String = prefs(context).getString(KEY_JSON, DEFAULT_JSON) ?: DEFAULT_JSON
-    fun writeJson(context: Context, value: String) = prefs(context).edit().putString(KEY_JSON, value).apply()
+    private fun profileKey(base: String, context: Context): String =
+        "${base}_${ProfileStore.activeProfileId(context)}"
 
-    fun readPayload(context: Context): String = prefs(context).getString(KEY_PAYLOAD, DEFAULT_PAYLOAD) ?: DEFAULT_PAYLOAD
-    fun writePayload(context: Context, value: String) = prefs(context).edit().putString(KEY_PAYLOAD, value).apply()
+    fun readJson(context: Context): String =
+        prefs(context).getString(profileKey(KEY_JSON, context), DEFAULT_JSON) ?: DEFAULT_JSON
+    fun writeJson(context: Context, value: String) =
+        prefs(context).edit().putString(profileKey(KEY_JSON, context), value).apply()
+
+    fun readPayload(context: Context): String =
+        prefs(context).getString(profileKey(KEY_PAYLOAD, context), DEFAULT_PAYLOAD) ?: DEFAULT_PAYLOAD
+    fun writePayload(context: Context, value: String) =
+        prefs(context).edit().putString(profileKey(KEY_PAYLOAD, context), value).apply()
 
     fun adsEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ADS_ENABLED, true)
     fun setAdsEnabled(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean(KEY_ADS_ENABLED, enabled).apply()
