@@ -1,0 +1,19 @@
+KUPAL VPN STARTER — STATUS
+
+Implemented:
+- Compose UI shell with Home / Config / Payload / Ads tabs
+- Local JSON profile draft and JSON syntax validation
+- HTTP payload template editor and placeholder preview
+- UMP consent initialization and privacy options button
+- AdMob interstitial test integration
+- 5–60 minute countdown and safe-state gate (no interstitial while VPN preview is connected)
+
+Not implemented yet:
+- Xray-core native Android library/build
+- Android VpnService TUN packet processing and Xray FD handoff
+- Real connect/disconnect behavior
+- VLESS/VMess/Trojan/SS URI parser and QR scanning
+- Live ping, upload/download counters, and server tests
+- Production AdMob App ID/ad unit IDs
+
+The Connect button is intentionally marked PREVIEW ONLY.
