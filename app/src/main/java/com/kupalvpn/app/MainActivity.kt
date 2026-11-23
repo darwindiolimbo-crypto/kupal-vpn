@@ -325,8 +325,30 @@ private fun ConfigScreen(padding: PaddingValues) {
     val profileId = ProfileStore.activeProfileId(context)
     var jsonText by rememberSaveable(profileId) { mutableStateOf(LocalStore.readJson(context)) }
     var validation by rememberSaveable { mutableStateOf("Draft not validated") }
+    var tunnelMode by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readMode(context)) }
+    var httpHost by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpHost(context)) }
+    var httpPort by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpPort(context)) }
+    var httpUser by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpUser(context)) }
+    var httpPassword by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpPassword(context)) }
 
     ScreenColumn(padding) {
+        Text("Connection engine", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Choose connection mode for this profile.", color = Color.LightGray, fontSize = 13.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(TunnelModeStore.MODE_XRAY, TunnelModeStore.MODE_HTTP, TunnelModeStore.MODE_SSH).forEach { mode ->
+                if (tunnelMode == mode) Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(mode) }
+                else OutlinedButton(onClick = { tunnelMode = mode; TunnelModeStore.saveMode(context, mode) }, modifier = Modifier.weight(1f)) { Text(mode) }
+            }
+        }
+        if (tunnelMode == TunnelModeStore.MODE_HTTP) {
+            Text("Routes through an HTTP proxy using Xray's HTTP outbound. Payload text is not injected.", color = Color.LightGray, fontSize = 12.sp)
+            OutlinedTextField(httpHost, { httpHost = it; TunnelModeStore.saveHttpHost(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy host / IP") }, singleLine = true)
+            OutlinedTextField(httpPort, { httpPort = it; TunnelModeStore.saveHttpPort(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            OutlinedTextField(httpUser, { httpUser = it; TunnelModeStore.saveHttpUser(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy username (optional)") }, singleLine = true)
+            OutlinedTextField(httpPassword, { httpPassword = it; TunnelModeStore.saveHttpPassword(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy password (optional)") }, singleLine = true)
+        } else if (tunnelMode == TunnelModeStore.MODE_SSH) {
+            Text("SSH mode is selectable, but the SSH tunnel engine and SSH credentials are not integrated yet.", color = Color(0xFFFFD27A), fontSize = 12.sp)
+        }
         Text("Xray configuration", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text("Edit an Xray JSON profile. Validation checks JSON syntax only, not every Xray field.", color = Color.LightGray, fontSize = 13.sp)
         OutlinedTextField(
