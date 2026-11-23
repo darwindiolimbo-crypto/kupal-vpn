@@ -35,7 +35,11 @@ object TunnelModeStore {
         val outbounds = config.optJSONArray("outbounds") ?: JSONArray().also { config.put("outbounds", it) }
         val httpOutbound = JSONObject().put("tag", "kupal-http-proxy").put("protocol", "http").put("settings", proxySettings)
         val existingIndex = (0 until outbounds.length()).firstOrNull { outbounds.optJSONObject(it)?.optString("tag") == "kupal-http-proxy" }
-        if (existingIndex == null) outbounds.put(httpOutbound) else outbounds.put(existingIndex, httpOutbound)
+        if (existingIndex == null) {
+            outbounds.put(httpOutbound)
+        } else {
+            outbounds.put(existingIndex, httpOutbound)
+        }
         config.optJSONObject("routing")?.optJSONArray("rules")?.let { rules ->
             val rule = JSONObject().put("type", "field").put("inboundTag", JSONArray().put("kupal-tun-in")).put("outboundTag", "kupal-http-proxy")
             val found = (0 until rules.length()).firstOrNull { rules.optJSONObject(it)?.optString("outboundTag") == "kupal-http-proxy" }
