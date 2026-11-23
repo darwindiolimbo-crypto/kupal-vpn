@@ -93,7 +93,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val Navy = Color(0xFF050506)\nprivate val Panel = Color(0xB0121216)\nprivate val GlassBorder = Color(0x26FFFFFF)\nprivate val Green = Color(0xFF66F0B5)\nprivate val Accent = Color(0xFF8B7CFF)
+private val Navy = Color(0xFF050506)
+private val Panel = Color(0xB0121216)
+private val GlassBorder = Color(0x26FFFFFF)
+private val Green = Color(0xFF66F0B5)
+private val Accent = Color(0xFF8B7CFF)
 
 @Composable
 private fun KupalVpnTheme(content: @Composable () -> Unit) {
@@ -232,7 +236,7 @@ private fun KupalVpnApp(
 }
 
 @Composable
-private fun ScreenColumn(padding: PaddingValues, content: @Composable () -> Unit) {
+fun ScreenColumn(padding: PaddingValues, content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -309,7 +313,7 @@ private fun MetricCard(label: String, value: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
+fun SectionCard(title: String, content: @Composable () -> Unit) {
     Card(modifier = Modifier.border(1.dp, GlassBorder, RoundedCornerShape(18.dp)), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(title, fontWeight = FontWeight.Bold, fontSize = 17.sp)
