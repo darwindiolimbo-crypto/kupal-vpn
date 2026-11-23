@@ -124,7 +124,8 @@ class KupalVpnService : VpnService() {
             Log.w(TAG, "Xray stop returned an error", error)
         } finally {
             try {
-                coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null)
+                runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
+                .onFailure { Log.w(TAG, "Could not reset Xray DNS resolver", it) }
             } catch (dnsError: Exception) {
                 Log.w(TAG, "Could not reset Xray DNS resolver", dnsError)
             }
