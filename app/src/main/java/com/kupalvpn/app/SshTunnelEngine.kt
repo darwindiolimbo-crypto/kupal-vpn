@@ -51,10 +51,19 @@ class SshTunnelEngine(
             config.validate()
             val jsch = JSch()
             jsch.setHostKeyRepository(SshHostKeyRepository(vpnService))
+            if (config.privateKey.isNotBlank()) {
+                val passphrase = config.privateKeyPassphrase.takeIf { it.isNotBlank() }?.toByteArray(Charsets.UTF_8)
+                jsch.addIdentity(
+                    "kupalvpn-profile-key",
+                    config.privateKey.toByteArray(Charsets.UTF_8),
+                    null,
+                    passphrase
+                )
+            }
             val sshSession = jsch.getSession(config.username, config.host.trim(), config.port)
-            sshSession.setPassword(config.password)
+            if (config.password.isNotBlank()) sshSession.setPassword(config.password)
             sshSession.setConfig("StrictHostKeyChecking", "yes")
-            sshSession.setConfig("PreferredAuthentications", "password,keyboard-interactive")
+            sshSession.setConfig("PreferredAuthentications", "publickey,password,keyboard-interactive")
             sshSession.setServerAliveInterval(15_000)
             sshSession.setServerAliveCountMax(3)
             sshSession.setSocketFactory(ProtectedSshSocketFactory(vpnService, config))
