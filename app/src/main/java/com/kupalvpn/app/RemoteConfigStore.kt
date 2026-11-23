@@ -12,8 +12,8 @@ import kotlinx.coroutines.withContext
  * Server credentials are deliberately not stored in this public catalog.
  */
 object RemoteConfigStore {
-    const val CONFIG_URL = "https://raw.githubusercontent.com/darwindiolimbo-crypto/kupal-vpn/main/config/kupalvpn-config.json"
-    const val EDIT_URL = "https://github.com/darwindiolimbo-crypto/kupal-vpn/edit/main/config/kupalvpn-config.json"
+    const val CONFIG_URL = "https://raw.githubusercontent.com/darwindiolimbo-crypto/kupal-vpn/feature/mobivpn-reference-rework/config/kupalvpn-config.json"
+    const val EDIT_URL = "https://github.com/darwindiolimbo-crypto/kupal-vpn/edit/feature/mobivpn-reference-rework/config/kupalvpn-config.json"
     private const val PREFS = "kupal_remote_config"
     private const val KEY_JSON = "cached_config_json"
     private const val MAX_BYTES = 512 * 1024
@@ -47,9 +47,17 @@ object RemoteConfigStore {
             val code = connection.responseCode
             if (code != HttpURLConnection.HTTP_OK) error("GitHub returned HTTP $code")
             val body = connection.inputStream.use { input ->
-                val bytes = input.readNBytes(MAX_BYTES + 1)
-                require(bytes.size <= MAX_BYTES) { "Remote config is larger than 512 KB" }
-                bytes.toString(Charsets.UTF_8)
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8 * 1024)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    require(total <= MAX_BYTES) { "Remote config is larger than 512 KB" }
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray().toString(Charsets.UTF_8)
             }
             val parsed = JSONObject(body)
             require(parsed.optInt("schemaVersion", -1) == 1) { "Unsupported config schema version" }
