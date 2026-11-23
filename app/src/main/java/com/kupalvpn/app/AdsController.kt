@@ -117,7 +117,7 @@ class AdsController(private val activity: Activity) {
     }
 
     companion object {
-        // Google's official Android rewarded test unit; replace before production.
-        const val TEST_REWARDED_AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917"
+        // Kupal VPN production rewarded ad unit. Keep this publisher ID unchanged.
+        const val REWARDED_AD_UNIT_ID = "ca-app-pub-9471897591250086/2836147281"
     }
 }
