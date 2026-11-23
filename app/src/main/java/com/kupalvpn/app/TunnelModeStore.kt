@@ -13,7 +13,15 @@ object TunnelModeStore {
     private fun key(context: Context, base: String) = "${base}_${ProfileStore.activeProfileId(context)}"
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun readMode(context: Context) = prefs(context).getString(key(context, "mode"), MODE_XRAY) ?: MODE_XRAY
+    fun readMode(context: Context): String {
+        val saved = prefs(context).getString(key(context, "mode"), MODE_XRAY) ?: MODE_XRAY
+        // Legacy HTTP mode is now an SSH payload transport setting.
+        if (saved == MODE_HTTP) {
+            saveMode(context, MODE_SSH)
+            return MODE_SSH
+        }
+        return saved
+    }
     fun saveMode(context: Context, mode: String) { prefs(context).edit().putString(key(context, "mode"), mode).apply() }
     fun readHttpHost(context: Context) = prefs(context).getString(key(context, "http_host"), "") ?: ""
     fun saveHttpHost(context: Context, value: String) { prefs(context).edit().putString(key(context, "http_host"), value.trim()).apply() }
