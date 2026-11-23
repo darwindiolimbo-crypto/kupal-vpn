@@ -11,6 +11,7 @@ data class SshConfig(
     val proxyHost: String,
     val proxyPort: Int,
     val sniHost: String,
+    val udpGatewayPort: Int,
     val payload: String
 ) {
     fun validate() {
@@ -24,6 +25,7 @@ data class SshConfig(
         }
         if (mode != MODE_DIRECT) require(payload.isNotBlank()) { "HTTP payload is required for this mode" }
         if (mode == MODE_TLS_PAYLOAD_PROXY) require(sniHost.isNotBlank()) { "TLS SNI host is required" }
+        require(udpGatewayPort in 0..65535) { "UDP gateway port must be 0-65535 (0 disables UDP relay)" }
     }
 
     companion object {
@@ -51,6 +53,7 @@ object SshConfigStore {
             proxyHost = p.getString(key(context, "proxy_host"), "") ?: "",
             proxyPort = p.getString(key(context, "proxy_port"), "8080")?.toIntOrNull() ?: 8080,
             sniHost = p.getString(key(context, "sni_host"), "") ?: "",
+            udpGatewayPort = p.getString(key(context, "udp_gateway_port"), "7300")?.toIntOrNull() ?: 7300,
             payload = p.getString(key(context, "payload"), DEFAULT_PAYLOAD) ?: DEFAULT_PAYLOAD
         )
     }
@@ -65,6 +68,7 @@ object SshConfigStore {
             .putString(key(context, "proxy_host"), config.proxyHost.trim())
             .putString(key(context, "proxy_port"), config.proxyPort.toString())
             .putString(key(context, "sni_host"), config.sniHost.trim())
+            .putString(key(context, "udp_gateway_port"), config.udpGatewayPort.toString())
             .putString(key(context, "payload"), config.payload)
             .apply()
     }
