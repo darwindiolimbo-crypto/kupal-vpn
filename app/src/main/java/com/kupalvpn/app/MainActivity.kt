@@ -376,6 +376,7 @@ private fun ConfigScreen(padding: PaddingValues) {
     var proxyHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.proxyHost) }
     var proxyPort by rememberSaveable(profileId) { mutableStateOf(savedSsh.proxyPort.toString()) }
     var sniHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.sniHost) }
+    var udpGatewayPort by rememberSaveable(profileId) { mutableStateOf(savedSsh.udpGatewayPort.toString()) }
     var saveMessage by rememberSaveable(profileId) { mutableStateOf("") }
     var jsonText by rememberSaveable(profileId) { mutableStateOf(LocalStore.readJson(context)) }
     var validation by rememberSaveable(profileId) { mutableStateOf("Configuration not validated") }
@@ -456,6 +457,7 @@ private fun ConfigScreen(padding: PaddingValues) {
                         proxyHost = proxyHost.trim(),
                         proxyPort = proxyPort.toIntOrNull() ?: 0,
                         sniHost = sniHost.trim(),
+                        udpGatewayPort = udpGatewayPort.toIntOrNull() ?: 0,
                         payload = SshConfigStore.read(context).payload
                     )
                     try {
