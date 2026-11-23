@@ -112,12 +112,11 @@ private fun KupalVpnApp(
     val context = LocalContext.current
     var tab by rememberSaveable { mutableStateOf("Home") }
     var previewConnected by rememberSaveable { mutableStateOf(false) }
-    var adInterval by rememberSaveable { mutableIntStateOf(LocalStore.adIntervalMinutes(context)) }
     var adsEnabled by rememberSaveable { mutableStateOf(LocalStore.adsEnabled(context)) }
-    var remaining by remember { mutableLongStateOf(adsController.remainingMillis(adInterval)) }
+    var remaining by remember { mutableLongStateOf(adsController.remainingMillis()) }
     var adActionMessage by rememberSaveable { mutableStateOf("") }
 
-    LaunchedEffect(adInterval, adsEnabled) {
+    LaunchedEffect(adsEnabled) {
         while (true) {
             remaining = adsController.remainingMillis(adInterval)
             delay(1_000)
@@ -163,23 +162,18 @@ private fun KupalVpnApp(
                 adsController = adsController,
                 previewConnected = previewConnected,
                 adsEnabled = adsEnabled,
-                adInterval = adInterval,
                 remainingMillis = remaining,
                 actionMessage = adActionMessage,
                 onEnabledChange = {
                     adsEnabled = it
                     LocalStore.setAdsEnabled(context, it)
                 },
-                onIntervalChange = {
-                    adInterval = it
-                    LocalStore.setAdIntervalMinutes(context, it)
-                },
                 onShowAd = {
                     val activity = context as? Activity
                     adActionMessage = if (activity == null) {
                         "Could not access the Activity"
                     } else {
-                        adsController.tryShowDueInterstitial(previewConnected, adInterval)
+                        adsController.tryShowDueInterstitial(previewConnected)
                     }
                 },
                 onPrivacyOptions = onPrivacyOptions
@@ -429,11 +423,9 @@ private fun AdsScreen(
     adsController: AdsController,
     previewConnected: Boolean,
     adsEnabled: Boolean,
-    adInterval: Int,
     remainingMillis: Long,
     actionMessage: String,
     onEnabledChange: (Boolean) -> Unit,
-    onIntervalChange: (Int) -> Unit,
     onShowAd: () -> Unit,
     onPrivacyOptions: () -> Unit
 ) {
@@ -450,15 +442,9 @@ private fun AdsScreen(
                 Switch(checked = adsEnabled, onCheckedChange = onEnabledChange)
             }
             Divider(color = Color(0xFF33485E))
-            Text("Ad interval: $adInterval minutes", fontWeight = FontWeight.SemiBold)
-            Slider(
-                value = adInterval.toFloat(),
-                onValueChange = { onIntervalChange(it.toInt().coerceIn(5, 60)) },
-                valueRange = 15f..120f,
-                steps = 6,
-                enabled = adsEnabled
-            )
-            Text("Choose 15–120 minutes. The timer only makes an ad eligible; it does not interrupt the VPN.", fontSize = 12.sp, color = Color.LightGray)
+            Text("Ad refresh interval: 10 seconds", fontWeight = FontWeight.SemiBold)
+            Text("The timer makes a test interstitial eligible every 10 seconds. Ads are not forced automatically; tap the button when ready.", fontSize = 12.sp, color = Color.LightGray)
+            Text("For production, use a much longer interval and follow AdMob frequency and placement policies.", fontSize = 12.sp, color = Color(0xFFFFD27A))
         }
         SectionCard("Next eligible ad") {
             Text(
