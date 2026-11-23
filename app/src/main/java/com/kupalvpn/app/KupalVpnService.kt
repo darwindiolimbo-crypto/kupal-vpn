@@ -149,7 +149,7 @@ class KupalVpnService : VpnService() {
 
     private fun stopTunnel() {
         try {
-            if (tun != null) {
+            if (tun != null && sshTunnel == null && coreClass != null) {
                 invokeCore("stopXray")
             }
         } catch (error: Exception) {
