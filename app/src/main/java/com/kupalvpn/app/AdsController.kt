@@ -5,21 +5,19 @@ import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.FullScreenContentCallback
-import com.google.android.gms.ads.interstitial.InterstitialAd
-import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
+import com.google.android.gms.ads.AdError
+import com.google.android.gms.ads.rewarded.RewardedAd
+import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
+import com.google.android.gms.ads.OnUserEarnedRewardListener
 import com.google.android.ump.ConsentRequestParameters
 import com.google.android.ump.UserMessagingPlatform
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
-/**
- * Timer-gated AdMob controller.
- * Interstitials are only shown after the configured interval and only when the VPN is disconnected.
- * Google test ad IDs are used until the app owner supplies real AdMob IDs.
- */
+/** Opt-in rewarded ads. A reward is granted only through AdMob's earned-reward callback. */
 class AdsController(private val activity: Activity) {
-    private var interstitialAd: InterstitialAd? = null
+    private var rewardedAd: RewardedAd? = null
     private var initialized = false
     var lastStatus: String by mutableStateOf("Waiting for privacy consent")
         private set
@@ -27,25 +25,18 @@ class AdsController(private val activity: Activity) {
     fun requestConsentAndInitialize() {
         val consentInformation = UserMessagingPlatform.getConsentInformation(activity)
         val parameters = ConsentRequestParameters.Builder().build()
-
         consentInformation.requestConsentInfoUpdate(
             activity,
             parameters,
             {
                 UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { formError ->
-                    if (formError != null) {
-                        lastStatus = "Consent form: ${formError.message}"
-                    }
-                    if (consentInformation.canRequestAds()) {
-                        initializeAds()
-                    } else {
-                        lastStatus = "Ads are unavailable until consent permits requests"
-                    }
-                }
+                    if (formError != null) lastStatus = "Consent form: ${formError.message}"
+                    if (consentInformation.canRequestAds()) initializeAds()
+                    else lastStatus = "Ads are unavailable until consent permits requests"
+                },
             },
             { requestError ->
                 lastStatus = "Consent update: ${requestError.message}"
-                // UMP may still have a valid consent choice from an earlier session.
                 if (consentInformation.canRequestAds()) initializeAds()
             }
         )
@@ -57,72 +48,66 @@ class AdsController(private val activity: Activity) {
         Thread {
             MobileAds.initialize(activity) {
                 activity.runOnUiThread {
-                    lastStatus = "AdMob initialized (test ads)"
-                    loadInterstitial()
+                    lastStatus = "AdMob initialized (rewarded test ads)"
+                    loadRewardedAd()
                 }
             }
         }.start()
     }
 
-    private fun loadInterstitial() {
-        if (!initialized || interstitialAd != null) return
-        InterstitialAd.load(
+    private fun loadRewardedAd() {
+        if (!initialized || rewardedAd != null) return
+        RewardedAd.load(
             activity,
-            TEST_INTERSTITIAL_AD_UNIT_ID,
+            TEST_REWARDED_AD_UNIT_ID,
             AdRequest.Builder().build(),
-            object : InterstitialAdLoadCallback() {
-                override fun onAdLoaded(ad: InterstitialAd) {
-                    interstitialAd = ad
-                    lastStatus = "Test interstitial ready"
+            object : RewardedAdLoadCallback() {
+                override fun onAdLoaded(ad: RewardedAd) {
+                    rewardedAd = ad
+                    lastStatus = "Rewarded ad ready"
                 }
-
                 override fun onAdFailedToLoad(error: LoadAdError) {
-                    interstitialAd = null
-                    lastStatus = "Ad not available: ${error.message}"
+                    rewardedAd = null
+                    lastStatus = "Rewarded ad unavailable: ${error.message}"
                 }
             }
         )
     }
 
-    fun remainingMillis(): Long {
-        val dueAt = LocalStore.adCycleStart(activity) + LocalStore.AD_REFRESH_INTERVAL_SECONDS * 1_000L
-        return (dueAt - System.currentTimeMillis()).coerceAtLeast(0L)
-    }
+    fun remainingMillis(): Long = LocalStore.remainingAdCooldownMillis(activity)
 
-    fun isAdDue(): Boolean = remainingMillis() == 0L
-
-    /** Returns a user-readable result. This method never shows an ad over an active VPN. */
-    fun tryShowDueInterstitial(vpnConnected: Boolean): String {
-        if (!LocalStore.adsEnabled(activity)) return "Ad timer is turned off"
-        if (vpnConnected) return "Disconnect the VPN before showing an interstitial"
-        if (!isAdDue()) return "The ad timer has not finished yet"
-        if (!initialized) return "AdMob is still initializing or consent is unavailable"
-
-        val ad = interstitialAd
+    fun tryShowRewardedAd(onReward: () -> Unit): String {
+        if (!LocalStore.adsEnabled(activity)) return "Rewarded ads are paused in settings"
+        val cooldown = remainingMillis()
+        if (cooldown > 0L) return "Wait ${(cooldown + 999L) / 1000L} seconds before the next ad"
+        if (!initialized) return "AdMob is initializing or consent is unavailable"
+        val ad = rewardedAd
         if (ad == null) {
-            loadInterstitial()
-            return "No ad is cached yet; try again when an ad is ready"
+            loadRewardedAd()
+            return "Rewarded video is loading. Try again shortly."
         }
-
-        interstitialAd = null
+        rewardedAd = null
+        var earned = false
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdShowedFullScreenContent() {
-                LocalStore.resetAdCycle(activity)
-                lastStatus = "Test ad shown"
+                LocalStore.markAdShown(activity)
+                lastStatus = "Rewarded ad shown"
             }
-
             override fun onAdDismissedFullScreenContent() {
-                lastStatus = "Ad closed"
-                loadInterstitial()
+                lastStatus = if (earned) "Reward granted: 2 hours VPN time" else "Ad closed; no reward earned"
+                loadRewardedAd()
             }
-
-            override fun onAdFailedToShowFullScreenContent(error: com.google.android.gms.ads.AdError) {
+            override fun onAdFailedToShowFullScreenContent(error: AdError) {
                 lastStatus = "Ad failed to show: ${error.message}"
-                loadInterstitial()
+                loadRewardedAd()
             }
         }
-        ad.show(activity)
-        return "Showing Google test ad"
+        ad.show(activity, OnUserEarnedRewardListener {
+            earned = true
+            onReward()
+            lastStatus = "Reward granted: 2 hours VPN time"
+        })
+        return "Showing rewarded video"
     }
 
     fun showPrivacyOptions() {
@@ -132,7 +117,7 @@ class AdsController(private val activity: Activity) {
     }
 
     companion object {
-        // Google's official Android interstitial test unit. Replace before release.
-        const val TEST_INTERSTITIAL_AD_UNIT_ID = "ca-app-pub-3940256099942544/1033173712"
+        // Google's official Android rewarded test unit; replace before production.
+        const val TEST_REWARDED_AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917"
     }
 }
