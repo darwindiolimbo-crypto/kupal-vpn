@@ -16,6 +16,8 @@ data class SshConfig(
     val port: Int,
     val username: String,
     val password: String,
+    val privateKey: String,
+    val privateKeyPassphrase: String,
     val proxyHost: String,
     val proxyPort: Int,
     val sniHost: String,
@@ -26,7 +28,7 @@ data class SshConfig(
         require(host.isNotBlank()) { "SSH server host is required" }
         require(port in 1..65535) { "SSH server port must be 1-65535" }
         require(username.isNotBlank()) { "SSH username is required" }
-        require(password.isNotBlank()) { "SSH password is required" }
+        require(password.isNotBlank() || privateKey.isNotBlank()) { "Enter an SSH password or import a private key" }
         if (mode == MODE_HTTP_PAYLOAD_PROXY || mode == MODE_TLS_PAYLOAD_PROXY) {
             require(proxyHost.isNotBlank()) { "HTTP proxy host is required for this mode" }
             require(proxyPort in 1..65535) { "HTTP proxy port must be 1-65535" }
@@ -73,7 +75,7 @@ object SshConfigStore {
         return generator.generateKey()
     }
 
-    private fun encryptPassword(password: String): String {
+    private fun encryptSecret(password: String): String {
         if (password.isEmpty()) return ""
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateEncryptionKey())
@@ -84,7 +86,7 @@ object SshConfigStore {
         return Base64.encodeToString(stored, Base64.NO_WRAP)
     }
 
-    private fun decryptPassword(encoded: String): String {
+    private fun decryptSecret(encoded: String): String {
         if (encoded.isEmpty()) return ""
         val stored = Base64.decode(encoded, Base64.NO_WRAP)
         require(stored.size > IV_LENGTH) { "Stored SSH password is invalid" }
@@ -115,6 +117,9 @@ object SshConfigStore {
         return legacy
     }
 
+    private fun readEncryptedSecret(context: Context, field: String): String =
+        prefs(context).getString(key(context, field + "_enc"), null)?.let { decryptSecret(it) } ?: ""
+
     fun read(context: Context): SshConfig {
         val p = prefs(context)
         return SshConfig(
@@ -123,6 +128,8 @@ object SshConfigStore {
             port = p.getString(key(context, "port"), "22")?.toIntOrNull() ?: 22,
             username = p.getString(key(context, "username"), "") ?: "",
             password = readPassword(context),
+            privateKey = readEncryptedSecret(context, "private_key"),
+            privateKeyPassphrase = readEncryptedSecret(context, "private_key_passphrase"),
             proxyHost = p.getString(key(context, "proxy_host"), "") ?: "",
             proxyPort = p.getString(key(context, "proxy_port"), "8080")?.toIntOrNull() ?: 8080,
             sniHost = p.getString(key(context, "sni_host"), "") ?: "",
@@ -142,6 +149,8 @@ object SshConfigStore {
             .putString(key(context, "port"), config.port.toString())
             .putString(key(context, "username"), config.username)
             .putString(key(context, "password_enc"), encryptPassword(config.password))
+            .putString(key(context, "private_key_enc"), encryptSecret(config.privateKey))
+            .putString(key(context, "private_key_passphrase_enc"), encryptSecret(config.privateKeyPassphrase))
             .remove(key(context, "password"))
             .putString(key(context, "proxy_host"), config.proxyHost.trim())
             .putString(key(context, "proxy_port"), config.proxyPort.toString())
