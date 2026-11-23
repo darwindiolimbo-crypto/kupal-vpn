@@ -9,6 +9,7 @@ object TunnelModeStore {
     const val MODE_HTTP = "HTTP"
     const val MODE_SSH = "SSH"
     private const val PREFS = "kupal_tunnel_mode"
+
     private fun key(context: Context, base: String) = "${base}_${ProfileStore.activeProfileId(context)}"
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -28,24 +29,37 @@ object TunnelModeStore {
         val port = readHttpPort(context).toIntOrNull() ?: error("Invalid HTTP proxy port")
         require(host.isNotBlank()) { "HTTP proxy host is required" }
         require(port in 1..65535) { "HTTP proxy port must be 1-65535" }
+
         val user = readHttpUser(context)
         val password = readHttpPassword(context)
-        val proxySettings = JSONObject().put("servers", JSONArray().put(JSONObject().put("address", host).put("port", port)))
-        if (user.isNotBlank()) proxySettings.getJSONArray("servers").getJSONObject(0).put("users", JSONArray().put(JSONObject().put("user", user).put("pass", password)))
+        val server = JSONObject().put("address", host).put("port", port)
+        if (user.isNotBlank()) {
+            server.put("users", JSONArray().put(JSONObject().put("user", user).put("pass", password)))
+        }
+        val proxySettings = JSONObject().put("servers", JSONArray().put(server))
+
         val outbounds = config.optJSONArray("outbounds") ?: JSONArray().also { config.put("outbounds", it) }
-        val httpOutbound = JSONObject().put("tag", "kupal-http-proxy").put("protocol", "http").put("settings", proxySettings)
-        val existingIndex = (0 until outbounds.length()).firstOrNull { outbounds.optJSONObject(it)?.optString("tag") == "kupal-http-proxy" }
-        if (existingIndex == null) {
-            outbounds.put(httpOutbound)
-        } else {
-            outbounds.put(existingIndex, httpOutbound)
+        val httpOutbound = JSONObject()
+            .put("tag", "kupal-http-proxy")
+            .put("protocol", "http")
+            .put("settings", proxySettings)
+
+        val existingOutbound = (0 until outbounds.length()).firstOrNull {
+            outbounds.optJSONObject(it)?.optString("tag") == "kupal-http-proxy"
         }
-        config.optJSONObject("routing")?.optJSONArray("rules")?.let { rules ->
-            val rule = JSONObject().put("type", "field").put("inboundTag", JSONArray().put("kupal-tun-in")).put("outboundTag", "kupal-http-proxy")
-            val found = (0 until rules.length()).firstOrNull { rules.optJSONObject(it)?.optString("outboundTag") == "kupal-http-proxy" }
-            if (found == null) rules.put(0, rule) else rules.put(found, rule)
-        } ?: run {
-            config.put("routing", JSONObject().put("rules", JSONArray().put(JSONObject().put("type", "field").put("inboundTag", JSONArray().put("kupal-tun-in")).put("outboundTag", "kupal-http-proxy")))))
+        if (existingOutbound == null) outbounds.put(httpOutbound)
+        else outbounds.put(existingOutbound, httpOutbound)
+
+        val routing = config.optJSONObject("routing") ?: JSONObject().also { config.put("routing", it) }
+        val rules = routing.optJSONArray("rules") ?: JSONArray().also { routing.put("rules", it) }
+        val routeRule = JSONObject()
+            .put("type", "field")
+            .put("inboundTag", JSONArray().put("kupal-tun-in"))
+            .put("outboundTag", "kupal-http-proxy")
+        val existingRule = (0 until rules.length()).firstOrNull {
+            rules.optJSONObject(it)?.optString("outboundTag") == "kupal-http-proxy"
         }
+        if (existingRule == null) rules.put(routeRule)
+        else rules.put(existingRule, routeRule)
     }
 }
