@@ -8,17 +8,24 @@ import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import com.jcraft.jsch.SocketFactory
 import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
@@ -142,7 +149,7 @@ class SshTunnelEngine(
             val command = readByte(input)
             readByte(input) // Reserved
             val addressType = readByte(input)
-            if (command != 1) {
+            if (command != 1 && command != 3) {
                 writeSocksReply(output, 7)
                 return
             }
@@ -156,6 +163,15 @@ class SshTunnelEngine(
                 }
             }
             val destinationPort = (readByte(input) shl 8) or readByte(input)
+
+            if (command == 3) {
+                if (config.udpGatewayPort == 0) {
+                    writeSocksReply(output, 7)
+                    return
+                }
+                runUdpAssociate(client, input, output, sshSession)
+                return
+            }
             require(destinationPort in 1..65535) { "Invalid SOCKS destination port" }
 
             val sshChannel = sshSession.openChannel("direct-tcpip") as ChannelDirectTCPIP
@@ -169,7 +185,7 @@ class SshTunnelEngine(
             sshChannel.connect(20_000)
 
             val deadline = System.currentTimeMillis() + 20_000L
-            while (running.get() && !sshChannel.isConnected && sshChannel.isConnected.not() &&
+            while (running.get() && !sshChannel.isConnected && !sshChannel.isClosed &&
                 System.currentTimeMillis() < deadline) {
                 if (!sshSession.isConnected) error("SSH session disconnected")
                 Thread.sleep(25)
@@ -191,6 +207,227 @@ class SshTunnelEngine(
             clientSockets.remove(client)
             runCatching { client.close() }
         }
+    }
+
+    /**
+     * SOCKS5 UDP ASSOCIATE bridge. UDP packets are framed using the BadVPN UDPGW
+     * wire format and carried through a separate SSH direct-tcpip channel to
+     * localhost:<udpGatewayPort> on the SSH server.
+     */
+    private fun runUdpAssociate(
+        controlSocket: Socket,
+        controlInput: InputStream,
+        controlOutput: OutputStream,
+        sshSession: Session
+    ) {
+        val udpChannel = sshSession.openChannel("direct-tcpip") as ChannelDirectTCPIP
+        var udpSocket: DatagramSocket? = null
+        val active = AtomicBoolean(true)
+        try {
+            udpChannel.setHost("127.0.0.1")
+            udpChannel.setPort(config.udpGatewayPort)
+            udpChannel.setOrgIPAddress(controlSocket.inetAddress.hostAddress ?: "127.0.0.1")
+            udpChannel.setOrgPort(controlSocket.port)
+            val gatewayInput = DataInputStream(udpChannel.inputStream)
+            val gatewayOutput = DataOutputStream(udpChannel.outputStream)
+            udpChannel.connect(20_000)
+            awaitChannel(udpChannel, sshSession, 20_000)
+
+            val relay = DatagramSocket(null)
+            udpSocket = relay
+            relay.reuseAddress = true
+            relay.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0))
+            relay.soTimeout = 1_000
+            val relayPort = relay.localPort
+            controlOutput.write(byteArrayOf(
+                5, 0, 0, 1, 127, 0, 0, 1,
+                ((relayPort shr 8) and 0xFF).toByte(), (relayPort and 0xFF).toByte()
+            ))
+            controlOutput.flush()
+
+            val lastClient = AtomicReference<InetSocketAddress?>(null)
+            val nextConnectionId = AtomicInteger(1)
+            val idsByDestination = ConcurrentHashMap<String, Int>()
+            val destinationById = ConcurrentHashMap<Int, String>()
+            val gatewayWriteLock = Any()
+
+            worker.execute {
+                val buffer = ByteArray(65_535)
+                while (active.get() && running.get()) {
+                    try {
+                        val packet = DatagramPacket(buffer, buffer.size)
+                        relay.receive(packet)
+                        if (packet.length < 4) continue
+                        val parsed = parseSocksUdpPacket(packet.data, packet.length) ?: continue
+                        lastClient.set(InetSocketAddress(packet.address, packet.port))
+                        val key = Base64.encodeToString(parsed.address, Base64.NO_WRAP) + ":" + parsed.port
+                        val existingId = idsByDestination[key]
+                        val connectionId = existingId ?: allocateUdpConnectionId(nextConnectionId, destinationById).also {
+                            idsByDestination[key] = it
+                            destinationById[it] = key
+                        }
+                        var flags = if (existingId == null) UDPGW_FLAG_REBIND else 0
+                        if (parsed.address.size == 16) flags = flags or UDPGW_FLAG_IPV6
+                        if (parsed.port == 53) flags = flags or UDPGW_FLAG_DNS
+                        synchronized(gatewayWriteLock) {
+                            writeUdpGwMessage(gatewayOutput, flags, connectionId, parsed.address, parsed.port, parsed.payload)
+                        }
+                    } catch (_: SocketTimeoutException) {
+                        // Poll the active flag.
+                    } catch (_: Exception) {
+                        active.set(false)
+                    }
+                }
+            }
+
+            worker.execute {
+                try {
+                    while (active.get() && running.get()) {
+                        val frameLength = gatewayInput.readUnsignedByte() or (gatewayInput.readUnsignedByte() shl 8)
+                        if (frameLength < 9 || frameLength > 65_535) error("Invalid UDPGW frame length")
+                        val frame = ByteArray(frameLength)
+                        gatewayInput.readFully(frame)
+                        val flags = frame[0].toInt() and 0xFF
+                        if ((flags and UDPGW_FLAG_KEEPALIVE) != 0) continue
+                        val connectionId = (frame[1].toInt() and 0xFF) or ((frame[2].toInt() and 0xFF) shl 8)
+                        if (!destinationById.containsKey(connectionId)) continue
+                        val ipv6 = (flags and UDPGW_FLAG_IPV6) != 0
+                        val addressLength = if (ipv6) 16 else 4
+                        val headerLength = 3 + addressLength + 2
+                        if (frame.size < headerLength) continue
+                        val address = frame.copyOfRange(3, 3 + addressLength)
+                        val portOffset = 3 + addressLength
+                        val sourcePort = (frame[portOffset].toInt() and 0xFF) or
+                            ((frame[portOffset + 1].toInt() and 0xFF) shl 8)
+                        val payload = frame.copyOfRange(headerLength, frame.size)
+                        val peer = lastClient.get() ?: continue
+                        val response = buildSocksUdpPacket(address, sourcePort, payload, ipv6)
+                        relay.send(DatagramPacket(response, response.size, peer))
+                    }
+                } catch (_: Exception) {
+                    active.set(false)
+                }
+            }
+
+            worker.execute {
+                while (active.get() && running.get()) {
+                    try {
+                        Thread.sleep(15_000L)
+                        if (active.get()) {
+                            synchronized(gatewayWriteLock) {
+                                writeUdpGwMessage(
+                                    gatewayOutput,
+                                    UDPGW_FLAG_KEEPALIVE,
+                                    0,
+                                    byteArrayOf(0, 0, 0, 0),
+                                    0,
+                                    ByteArray(0)
+                                )
+                            }
+                        }
+                    } catch (_: InterruptedException) {
+                        return@execute
+                    } catch (_: Exception) {
+                        active.set(false)
+                    }
+                }
+            }
+
+            controlSocket.soTimeout = 1_000
+            while (active.get() && running.get() && sshSession.isConnected && udpChannel.isConnected && !controlSocket.isClosed) {
+                try {
+                    if (controlInput.read() < 0) break
+                    // The SOCKS5 TCP control channel is reserved for association lifetime.
+                    break
+                } catch (_: SocketTimeoutException) {
+                    // The UDP relay is active; poll for client/SSH shutdown.
+                }
+            }
+        } finally {
+            active.set(false)
+            runCatching { udpSocket?.close() }
+            runCatching { udpChannel.disconnect() }
+        }
+    }
+
+    private data class ParsedSocksUdpPacket(
+        val address: ByteArray,
+        val port: Int,
+        val payload: ByteArray
+    )
+
+    private fun parseSocksUdpPacket(bytes: ByteArray, length: Int): ParsedSocksUdpPacket? {
+        if (length < 10 || bytes[0].toInt() != 0 || bytes[1].toInt() != 0 || bytes[2].toInt() != 0) return null
+        var offset = 4
+        val address = when (bytes[3].toInt() and 0xFF) {
+            1 -> {
+                if (length < offset + 6) return null
+                bytes.copyOfRange(offset, offset + 4).also { offset += 4 }
+            }
+            4 -> {
+                if (length < offset + 18) return null
+                bytes.copyOfRange(offset, offset + 16).also { offset += 16 }
+            }
+            // UDPGW requires numeric destination addresses; Hev normally supplies these for TUN packets.
+            else -> return null
+        }
+        val port = ((bytes[offset].toInt() and 0xFF) shl 8) or (bytes[offset + 1].toInt() and 0xFF)
+        offset += 2
+        if (port !in 1..65535 || offset > length) return null
+        return ParsedSocksUdpPacket(address, port, bytes.copyOfRange(offset, length))
+    }
+
+    private fun allocateUdpConnectionId(
+        counter: AtomicInteger,
+        activeIds: ConcurrentHashMap<Int, String>
+    ): Int {
+        repeat(65_535) {
+            val candidate = counter.getAndUpdate { if (it >= 65_535) 1 else it + 1 }
+            if (!activeIds.containsKey(candidate)) return candidate
+        }
+        error("No UDP gateway connection IDs available")
+    }
+
+    private fun writeUdpGwMessage(
+        output: DataOutputStream,
+        flags: Int,
+        connectionId: Int,
+        address: ByteArray,
+        port: Int,
+        payload: ByteArray
+    ) {
+        val bodyLength = 3 + address.size + 2 + payload.size
+        require(bodyLength <= 65_535) { "UDP datagram is too large for UDPGW" }
+        output.writeByte(bodyLength and 0xFF)
+        output.writeByte((bodyLength shr 8) and 0xFF)
+        output.writeByte(flags and 0xFF)
+        output.writeByte(connectionId and 0xFF)
+        output.writeByte((connectionId shr 8) and 0xFF)
+        output.write(address)
+        // BadVPN UDPGW encodes the destination port little-endian.
+        output.writeByte(port and 0xFF)
+        output.writeByte((port shr 8) and 0xFF)
+        output.write(payload)
+        output.flush()
+    }
+
+    private fun buildSocksUdpPacket(address: ByteArray, port: Int, payload: ByteArray, ipv6: Boolean): ByteArray {
+        val output = ByteArrayOutputStream()
+        output.write(byteArrayOf(0, 0, 0, if (ipv6) 4 else 1))
+        output.write(address)
+        output.write((port shr 8) and 0xFF)
+        output.write(port and 0xFF)
+        output.write(payload)
+        return output.toByteArray()
+    }
+
+    private fun awaitChannel(channel: ChannelDirectTCPIP, sshSession: Session, timeoutMillis: Long) {
+        val deadline = System.currentTimeMillis() + timeoutMillis
+        while (running.get() && !channel.isConnected && !channel.isClosed && System.currentTimeMillis() < deadline) {
+            if (!sshSession.isConnected) error("SSH session disconnected")
+            Thread.sleep(25L)
+        }
+        check(channel.isConnected) { "SSH server refused or timed out opening the forwarding channel" }
     }
 
     private class ProtectedSshSocketFactory(
@@ -290,5 +527,9 @@ class SshTunnelEngine(
 
     companion object {
         private const val LOCAL_SOCKS_PORT = 10808
+        private const val UDPGW_FLAG_KEEPALIVE = 0x01
+        private const val UDPGW_FLAG_REBIND = 0x02
+        private const val UDPGW_FLAG_DNS = 0x04
+        private const val UDPGW_FLAG_IPV6 = 0x08
     }
 }
