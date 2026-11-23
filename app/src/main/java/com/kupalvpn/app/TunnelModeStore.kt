@@ -39,7 +39,7 @@ object TunnelModeStore {
         config.optJSONObject("routing")?.optJSONArray("rules")?.let { rules ->
             val rule = JSONObject().put("type", "field").put("inboundTag", JSONArray().put("kupal-tun-in")).put("outboundTag", "kupal-http-proxy")
             val found = (0 until rules.length()).firstOrNull { rules.optJSONObject(it)?.optString("outboundTag") == "kupal-http-proxy" }
-            if (found == null) rules.put(rule) else rules.put(found, rule)
+            if (found == null) rules.put(0, rule) else rules.put(found, rule)
         } ?: run {
             config.put("routing", JSONObject().put("rules", JSONArray().put(JSONObject().put("type", "field").put("inboundTag", JSONArray().put("kupal-tun-in")).put("outboundTag", "kupal-http-proxy")))))
         }
