@@ -118,7 +118,7 @@ private fun KupalVpnApp(
 
     LaunchedEffect(adsEnabled) {
         while (true) {
-            remaining = adsController.remainingMillis(adInterval)
+            remaining = adsController.remainingMillis()
             delay(1_000)
         }
     }
