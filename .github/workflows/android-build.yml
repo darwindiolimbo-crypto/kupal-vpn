@@ -48,6 +48,8 @@ jobs:
       - name: Build libXray Android AAR
         working-directory: .engine/libXray
         run: |
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
           python3 build/main.py android
           mkdir -p "$GITHUB_WORKSPACE/app/libs"
           cp libXray.aar "$GITHUB_WORKSPACE/app/libs/libXray.aar"
