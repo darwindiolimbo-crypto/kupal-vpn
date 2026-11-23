@@ -28,10 +28,29 @@ jobs:
         with:
           gradle-version: '8.13'
 
+      - name: Set up Go for libXray
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018'
+
+      - name: Checkout pinned Xray engine
+        uses: actions/checkout@v4
+        with:
+          repository: XTLS/libXray
+          ref: v26.11.9
+          path: .engine/libXray
+
+      - name: Build libXray Android AAR
+        working-directory: .engine/libXray
+        run: |
+          python3 build/main.py android
+          mkdir -p "$GITHUB_WORKSPACE/app/libs"
+          cp libXray.aar "$GITHUB_WORKSPACE/app/libs/libXray.aar"
 
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
