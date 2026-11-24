@@ -147,7 +147,17 @@ object ServerCatalogStore {
             val current=ProfileStore.profiles(context).first { it.id==id }
             ProfileStore.update(context,current.copy(name=item.name.take(64),protocol="SSH",server=item.host))
             val previous=SshConfigStore.read(context)
-            SshConfigStore.save(context,previous.copy(host=item.host,port=item.port,payload=item.payloadTemplate.ifBlank { previous.payload }))
+            val sshMode = if (item.payloadTemplate.isNotBlank()) {
+                SshConfig.MODE_HTTP_PAYLOAD_DIRECT
+            } else {
+                previous.mode
+            }
+            SshConfigStore.save(context, previous.copy(
+                mode = sshMode,
+                host = item.host,
+                port = item.port,
+                payload = item.payloadTemplate.ifBlank { previous.payload }
+            ))
             TunnelModeStore.saveMode(context,TunnelModeStore.MODE_SSH)
             return "SSH endpoint added. Enter your own username and password in Config before connecting."
         }
