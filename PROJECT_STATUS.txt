@@ -3,13 +3,13 @@ KUPAL VPN — DEVELOPMENT STATUS
 Implemented in source:
 - Jetpack Compose dark UI: Home, Profile, Config, Payload, Free Servers, Ads
 - Multiple saved profile drafts and protocol/server metadata
-- Share-link import parser for VLESS, VMess (Base64 JSON), Trojan, SIP002 and legacy Shadowsocks
+- Share-link parser for VLESS, VMess (Base64 JSON), Trojan, SIP002 and legacy Shadowsocks\n- Multi-link/Base64 subscription parser and Xray JSON outbound extraction; imported nodes saved as separate profiles\n- Subscription URL fetching remains copy-only
 - Outbound draft mapping for common TCP, WebSocket, gRPC, HTTP/2, XHTTP, KCP, QUIC, TLS and REALITY fields
 - Unsupported transport rejection and Shadowsocks-plugin warning
 - Xray JSON editor/syntax validation
 - Payload/setup template editor and copyable rendered preview
 - KupalVpnService TUN lifecycle, Xray libXray run/stop, FD handoff, socket protect and DNS callback source
-- Free Nodes Radar source link (copy-only; subscription fetching/import not implemented)
+- Free Nodes Radar source link (copy-only; paste-text subscription parsing/import supported; URL fetching not implemented)
 - UMP consent update and privacy options
 - 15–120 minute manual interstitial timer (default 30); never auto-show; blocked while VPN is connected
 - Rewarded video uses Google's official test unit only (no production rewarded ID provided)
