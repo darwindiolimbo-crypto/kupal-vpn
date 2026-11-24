@@ -49,15 +49,11 @@ class AdsController(private val activity: Activity) {
     private fun initializeAds() {
         if (initialized) return
         initialized = true
-        Thread {
-            MobileAds.initialize(activity) {
-                activity.runOnUiThread {
-                    lastStatus = "AdMob initialized (rewarded test + configured interstitial)"
-                    loadRewardedAd()
-                    loadInterstitialAd()
-                }
-            }
-        }.start()
+        MobileAds.initialize(activity) {
+            lastStatus = "AdMob initialized (rewarded test + configured interstitial)"
+            loadRewardedAd()
+            loadInterstitialAd()
+        }
     }
 
     private fun loadRewardedAd() {
