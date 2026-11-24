@@ -97,13 +97,18 @@ class SshTunnelEngine(
             check(TProxyService.TProxyStartService(configFile.absolutePath, tunFd)) {
                 "Hev SOCKS tunnel could not start"
             }
-            // JNI starts HEV on its own pthread. Verify it survives its initial
-            // config/TUN setup instead of treating thread creation alone as readiness.
-            repeat(10) {
-                check(TProxyService.TProxyIsRunning()) {
-                    "Hev tunnel exited during startup; check its TUN/SOCKS configuration"
-                }
-                Thread.sleep(50L)
+            // JNI starts HEV on its own pthread. Its running flag can remain
+            // false briefly after TProxyStartService returns, so poll for readiness
+            // instead of failing on the first immediate false result.
+            val readyDeadline = System.currentTimeMillis() + 5_000L
+            var nativeReady = false
+            while (running.get() && System.currentTimeMillis() < readyDeadline) {
+                nativeReady = runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false)
+                if (nativeReady) break
+                Thread.sleep(100L)
+            }
+            check(nativeReady) {
+                "Hev tunnel did not become ready within 5 seconds. Check its native library, TUN descriptor, and SOCKS configuration."
             }
             return true
         } catch (error: Exception) {
