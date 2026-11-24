@@ -17,6 +17,7 @@ import org.json.JSONObject
 class KupalVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var coreClass: Class<*>? = null
+    private var coreStarted = false
     private val vpnTimeHandler = Handler(Looper.getMainLooper())
     private val vpnTimeTick = object : Runnable {
         override fun run() {
@@ -36,14 +37,28 @@ class KupalVpnService : VpnService() {
         when (intent?.action) {
             ACTION_STOP -> stopTunnel()
             ACTION_START -> {
-                val config = intent.getStringExtra(EXTRA_CONFIG)
-                if (LocalStore.remainingVpnMillis(this) <= 0L) {
-                    setState("error: Watch a rewarded ad to get 2 hours of VPN time")
-                    stopSelf()
-                } else if (config.isNullOrBlank()) {
-                    setState("error: Missing Xray configuration")
-                    stopSelf()
-                } else startTunnel(config)
+                if (tun != null) return START_NOT_STICKY
+                try {
+                    startForeground(NOTIFICATION_ID, notification("Preparing secure tunnel"))
+                    val config = intent.getStringExtra(EXTRA_CONFIG)
+                    if (LocalStore.remainingVpnMillis(this) <= 0L) {
+                        setState("error: Watch a rewarded ad to get 2 hours of VPN time")
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf(startId)
+                    } else if (config.isNullOrBlank()) {
+                        setState("error: Missing Xray configuration")
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf(startId)
+                    } else startTunnel(config)
+                } catch (error: Exception) {
+                    Log.e(TAG, "VPN start command failed", error)
+                    setState("error: ${error.message ?: error.javaClass.simpleName}")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(startId)
+                }
+            }
+            else -> {
+                if (tun == null) setState("disconnected")
             }
         }
         return START_NOT_STICKY
@@ -53,7 +68,16 @@ class KupalVpnService : VpnService() {
         if (tun != null) return
         setState("connecting")
         try {
-            startForeground(NOTIFICATION_ID, notification("Starting secure tunnel"))
+            val config = JSONObject(configText)
+            require(config.optJSONArray("outbounds")?.length()?.let { it > 0 } == true) {
+                "Xray configuration must contain at least one outbound"
+            }
+            val mode = TunnelModeStore.readMode(this)
+            require(mode in listOf(TunnelModeStore.MODE_XRAY, TunnelModeStore.MODE_HTTP, TunnelModeStore.MODE_SSH)) {
+                "Unsupported tunnel mode: $mode"
+            }
+            if (mode == TunnelModeStore.MODE_SSH) error("SSH tunnel engine is unavailable; SSH mode cannot connect yet.")
+
             val builder = Builder()
                 .setSession("Kupal VPN")
                 .setMtu(1500)
@@ -66,9 +90,6 @@ class KupalVpnService : VpnService() {
             if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
             tun = builder.establish() ?: error("Android did not create the VPN interface")
 
-            val mode = TunnelModeStore.readMode(this)
-            if (mode == TunnelModeStore.MODE_SSH) error("SSH tunnel engine is not installed yet. SSH mode settings are saved, but SSH connection support is pending.")
-            val config = JSONObject(configText)
             if (mode == TunnelModeStore.MODE_HTTP) TunnelModeStore.applyHttpProxy(this, config)
             val env = config.optJSONObject("env") ?: JSONObject().also { config.put("env", it) }
             env.put("xray.tun.fd", tun!!.fd.toString())
@@ -82,6 +103,7 @@ class KupalVpnService : VpnService() {
 
             registerSocketProtection()
             invokeCore("runXray", JSONObject().put("xrayJson", config.toString()))
+            coreStarted = true
             if (!LocalStore.startVpnTime(this)) error("VPN time credit expired before connection")
             setState("connected")
             updateNotification("Kupal VPN connected · rewarded time active")
@@ -90,6 +112,8 @@ class KupalVpnService : VpnService() {
         } catch (error: Exception) {
             Log.e(TAG, "Unable to start Xray VPN", error)
             setState("error: ${error.message ?: error.javaClass.simpleName}")
+            if (coreStarted) runCatching { invokeCore("stopXray") }.onFailure { Log.w(TAG, "Failed to stop Xray after startup error", it) }
+            coreStarted = false
             runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
             LocalStore.pauseVpnTime(this)
@@ -105,11 +129,23 @@ class KupalVpnService : VpnService() {
         val method = clazz.methods.firstOrNull { it.name == "registerDialerController" && it.parameterTypes.size == 1 }
             ?: error("libXray socket-protection API is missing")
         val callbackType = method.parameterTypes[0]
-        val callback = Proxy.newProxyInstance(callbackType.classLoader, arrayOf(callbackType)) { _, called, args ->
-            if (called.name == "protectFd") {
-                val fd = (args?.firstOrNull() as? Number)?.toInt() ?: -1
-                fd >= 0 && protect(fd)
-            } else false
+        val callback = Proxy.newProxyInstance(callbackType.classLoader, arrayOf(callbackType)) { proxy, called, args ->
+            when (called.name) {
+                "protectFd" -> {
+                    val fd = (args?.firstOrNull() as? Number)?.toInt() ?: -1
+                    fd >= 0 && protect(fd)
+                }
+                "toString" -> "KupalVpnSocketProtection"
+                "hashCode" -> System.identityHashCode(proxy)
+                "equals" -> proxy === args?.firstOrNull()
+                else -> when (called.returnType) {
+                    java.lang.Boolean.TYPE, java.lang.Boolean::class.java -> false
+                    java.lang.Integer.TYPE, java.lang.Integer::class.java -> 0
+                    java.lang.Long.TYPE, java.lang.Long::class.java -> 0L
+                    java.lang.Void.TYPE -> null
+                    else -> null
+                }
+            }
         }
         method.invoke(null, callback)
         val setDns = clazz.methods.firstOrNull { it.name == "setDNS" && it.parameterTypes.size == 2 }
@@ -128,9 +164,7 @@ class KupalVpnService : VpnService() {
         val responseText = invoke.invoke(null, request.toString()) as? String
             ?: error("libXray returned an empty response")
         val response = JSONObject(responseText)
-        if (!response.optBoolean("success", false)) {
-            error(response.optString("error", "Xray core request failed"))
-        }
+        if (!response.optBoolean("success", false)) error(response.optString("error", "Xray core request failed"))
         return response
     }
 
@@ -143,21 +177,16 @@ class KupalVpnService : VpnService() {
 
     private fun stopTunnel() {
         try {
-            if (tun != null) {
-                invokeCore("stopXray")
-            }
+            if (coreStarted) invokeCore("stopXray")
         } catch (error: Exception) {
             Log.w(TAG, "Xray stop returned an error", error)
         } finally {
+            coreStarted = false
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
             LocalStore.pauseVpnTime(this)
-            try {
-                runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
+            runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
                 .onFailure { Log.w(TAG, "Could not reset Xray DNS resolver", it) }
-            } catch (dnsError: Exception) {
-                Log.w(TAG, "Could not reset Xray DNS resolver", dnsError)
-            }
-            tun?.close()
+            runCatching { tun?.close() }.onFailure { Log.w(TAG, "Could not close VPN interface", it) }
             tun = null
             setState("disconnected")
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -171,16 +200,14 @@ class KupalVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        if (tun != null) stopTunnel()
+        if (tun != null || coreStarted) stopTunnel()
         super.onDestroy()
     }
 
     private fun notification(message: String): Notification {
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) {
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "VPN connection", NotificationManager.IMPORTANCE_LOW)
-            )
+            manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "VPN connection", NotificationManager.IMPORTANCE_LOW))
         }
         val launch = packageManager.getLaunchIntentForPackage(packageName)
         val pending = launch?.let {
@@ -189,8 +216,8 @@ class KupalVpnService : VpnService() {
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this)
         return builder.setContentTitle("Kupal VPN")
             .setContentText(message)
-            .setSmallIcon(android.R.drawable.stat_sys_warning)
             .setOngoing(true)
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
             .setContentIntent(pending)
             .build()
     }
