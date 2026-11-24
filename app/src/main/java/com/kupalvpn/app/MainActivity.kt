@@ -313,7 +313,6 @@ private fun HomeScreen(
             OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) { Text("Privacy & consent") }
         }
         if (adsEnabled && adsController.adsReady) HomeBannerAd(adsController.adsReady)
-        }
     }
 }
 
