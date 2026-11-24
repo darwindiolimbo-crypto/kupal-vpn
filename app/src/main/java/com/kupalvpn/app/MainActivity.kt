@@ -138,28 +138,39 @@ private fun KupalVpnApp(
         val config = pendingVpnConfig
         pendingVpnConfig = null
         if (result.resultCode == Activity.RESULT_OK && config != null) {
-            val serviceIntent = Intent(context, KupalVpnService::class.java)
-                .setAction(KupalVpnService.ACTION_START)
-                .putExtra(KupalVpnService.EXTRA_CONFIG, config)
-            if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent)
-            else context.startService(serviceIntent)
+            runCatching {
+                val serviceIntent = Intent(context, KupalVpnService::class.java)
+                    .setAction(KupalVpnService.ACTION_START)
+                    .putExtra(KupalVpnService.EXTRA_CONFIG, config)
+                if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent)
+                else context.startService(serviceIntent)
+            }.onFailure { error ->
+                vpnState = "error: ${error.message ?: "VPN service failed to start"}"
+            }
         }
     }
     val previewConnected = vpnState == "connected" || vpnState == "connecting"
     fun requestVpnToggle() {
-        if (previewConnected) {
-            context.startService(Intent(context, KupalVpnService::class.java).setAction(KupalVpnService.ACTION_STOP))
-        } else {
-            pendingVpnConfig = LocalStore.readJson(context)
-            val permissionIntent = VpnService.prepare(context)
-            if (permissionIntent == null) {
-                val serviceIntent = Intent(context, KupalVpnService::class.java)
-                    .setAction(KupalVpnService.ACTION_START)
-                    .putExtra(KupalVpnService.EXTRA_CONFIG, pendingVpnConfig)
-                if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent)
-                else context.startService(serviceIntent)
-                pendingVpnConfig = null
-            } else vpnPermissionLauncher.launch(permissionIntent)
+        runCatching {
+            if (previewConnected) {
+                context.startService(Intent(context, KupalVpnService::class.java).setAction(KupalVpnService.ACTION_STOP))
+            } else {
+                val config = LocalStore.readJson(context)
+                pendingVpnConfig = config
+                val permissionIntent = VpnService.prepare(context)
+                if (permissionIntent == null) {
+                    val serviceIntent = Intent(context, KupalVpnService::class.java)
+                        .setAction(KupalVpnService.ACTION_START
+                    )
+                        .putExtra(KupalVpnService.EXTRA_CONFIG, config)
+                    if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent)
+                    else context.startService(serviceIntent)
+                    pendingVpnConfig = null
+                } else vpnPermissionLauncher.launch(permissionIntent)
+            }
+        }.onFailure { error ->
+            pendingVpnConfig = null
+            vpnState = "error: ${error.message ?: "VPN operation failed"}"
         }
     }
     LaunchedEffect(Unit) {
