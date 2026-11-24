@@ -73,10 +73,11 @@ object ProfileStore {
         if (profiles(context).any { it.id == id }) prefs(context).edit().putString(KEY_ACTIVE, id).apply()
     }
 
-    fun add(context: Context, carrier: String, apn: String) {
+    fun add(context: Context, carrier: String, apn: String): String {
         val p = VpnProfile(UUID.randomUUID().toString(), "$carrier profile", carrier, apn, "VLESS", "")
         save(context, profiles(context) + p)
         select(context, p.id)
+        return p.id
     }
 
     fun update(context: Context, profile: VpnProfile) {
