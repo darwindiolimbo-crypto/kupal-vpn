@@ -67,17 +67,17 @@ object ServerCatalogStore {
         fun add(o:JSONObject) {
             val endpoint=o.optJSONObject("server") ?: o.optJSONObject("serverData") ?: o
             val host=pick(endpoint,listOf("server_host","serverHost","server_ip","serverIp","ssh_host","sshHost","host","ip","address","hostname","domain","server"))
-            val port=pick(endpoint,listOf("server_port","serverPort","ssh_port","port")).toIntOrNull() ?: endpoint.optInt("port",0)
+            val port=pick(endpoint,listOf("server_port","serverPort","ssh_port","sshPort","port")).toIntOrNull() ?: endpoint.optInt("port",endpoint.optInt("server_port",endpoint.optInt("ssh_port",0)))
             val protocol=pick(o,listOf("protocol","type","engine","server_type","category","mode")).ifBlank { pick(endpoint,listOf("protocol","type")) }.ifBlank { if(pick(endpoint,listOf("ssh_host","sshHost")).isNotBlank()) "SSH" else if(o.has("xray")||o.has("outbounds")) "Xray" else "Server" }
             val link=pick(o,listOf("share_link","shareLink","link","uri","profile_link","connection_uri","subscription","config_url"))
             val configObj=o.optJSONObject("config") ?: o.optJSONObject("xray") ?: o.optJSONObject("xray_config")
             val configText=when { configObj!=null -> configObj.toString(); o.opt("config") is String -> o.optString("config"); else -> pick(o,listOf("config_json","configJson","xray_config_json","raw_config","content","json","configuration")) }
             val config=configText.takeIf { it.trimStart().startsWith("{") || it.trimStart().startsWith("[") }.orEmpty()
+            val payloadTemplate=pick(o,listOf("payload","http_payload","payload_text","request_payload"))
             if(host.isBlank() && link.isBlank() && config.isBlank() && payloadTemplate.isBlank()) return
-            val name=pick(o,listOf("server_name","serverName","name","title","remark","label","display_name")).ifBlank { host.ifBlank { "Server \${rows.size+1}" } }
+            val name=pick(o,listOf("server_name","serverName","name","title","remark","label","display_name","payload_name")).ifBlank { host.ifBlank { "Server \${rows.size+1}" } }
             val country=pick(o,listOf("server_country","serverCountry","country","location","server_location","serverLocation","region","city"))
             val desc=pick(o,listOf("description","details","note","status","server_location_source"))
-            val payloadTemplate=pick(o,listOf("payload","http_payload","payload_text","request_payload"))
             val id=pick(o,listOf("id","server_id","serverId","config_id","uuid")).ifBlank { "\${protocol.lowercase()}|\${host.lowercase()}|\${port}|\${name.lowercase()}" }
             if(ids.add(id)) rows += CatalogServer(id,name,protocol,host.removePrefix("[").removeSuffix("]"),port,country,link,config,desc,payloadTemplate)
         }
@@ -98,7 +98,7 @@ object ServerCatalogStore {
                     val trimmed=value.trim()
                     if(trimmed.startsWith("{")) runCatching { walk(JSONObject(trimmed),depth+1) }
                     else if(trimmed.startsWith("[")) runCatching { walk(JSONArray(trimmed),depth+1) }
-                    else if(listOf("vless://","vmess://","trojan://","ss://","socks://","http://","https://").any { trimmed.startsWith(it,true) }) {
+                    else if(listOf("vless://","vmess://","trojan://","ss://").any { trimmed.startsWith(it,true) }) {
                         val protocol=trimmed.substringBefore("://").uppercase()
                         val key="link|${trimmed.hashCode()}"
                         if(ids.add(key)) rows += CatalogServer(key,protocol+" server",protocol,"",0,"",trimmed,"","","")
