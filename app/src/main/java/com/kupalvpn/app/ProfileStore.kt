@@ -35,16 +35,28 @@ object ProfileStore {
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun activeProfileId(context: Context): String {
-        ensureDefaults(context)
-        return prefs(context).getString(KEY_ACTIVE, "my-profile") ?: "my-profile"
+        val all = profiles(context)
+        val saved = prefs(context).getString(KEY_ACTIVE, null)
+        val id = saved?.takeIf { candidate -> all.any { it.id == candidate } } ?: all.first().id
+        if (saved != id) prefs(context).edit().putString(KEY_ACTIVE, id).apply()
+        return id
     }
 
     fun profiles(context: Context): List<VpnProfile> {
         ensureDefaults(context)
-        val array = JSONArray(prefs(context).getString(KEY_PROFILES, "[]") ?: "[]")
-        return (0 until array.length()).mapNotNull { i ->
-            val o = array.optJSONObject(i) ?: return@mapNotNull null
-            VpnProfile(o.optString("id"), o.optString("name"), o.optString("carrier"), o.optString("apn"), o.optString("protocol", "VLESS"), o.optString("server"))
+        return runCatching {
+            val array = JSONArray(prefs(context).getString(KEY_PROFILES, "[]") ?: "[]")
+            (0 until array.length()).mapNotNull { i ->
+                val o = array.optJSONObject(i) ?: return@mapNotNull null
+                val id = o.optString("id").trim()
+                if (id.isBlank()) return@mapNotNull null
+                VpnProfile(id, o.optString("name", "VPN profile").ifBlank { "VPN profile" }, o.optString("carrier", "Custom"), o.optString("apn"), o.optString("protocol", "VLESS").ifBlank { "VLESS" }, o.optString("server"))
+            }.distinctBy { it.id }
+        }.getOrDefault(emptyList()).ifEmpty {
+            val defaults = defaultProfiles()
+            save(context, defaults)
+            prefs(context).edit().putString(KEY_ACTIVE, defaults.first().id).apply()
+            defaults
         }
     }
 
@@ -52,10 +64,11 @@ object ProfileStore {
         if (profiles(context).any { it.id == id }) prefs(context).edit().putString(KEY_ACTIVE, id).apply()
     }
 
-    fun add(context: Context, carrier: String, apn: String) {
+    fun add(context: Context, carrier: String, apn: String): String {
         val p = VpnProfile(UUID.randomUUID().toString(), "$carrier profile", carrier, apn, "VLESS", "")
         save(context, profiles(context) + p)
         select(context, p.id)
+        return p.id
     }
 
     fun update(context: Context, profile: VpnProfile) {
@@ -66,7 +79,7 @@ object ProfileStore {
         val left = profiles(context).filterNot { it.id == id }
         if (left.isEmpty()) return
         save(context, left)
-        if (activeProfileId(context) == id) select(context, left.first().id)
+        if (prefs(context).getString(KEY_ACTIVE, null) == id) select(context, left.first().id)
     }
 
     private fun save(context: Context, list: List<VpnProfile>) {
@@ -78,18 +91,22 @@ object ProfileStore {
         prefs(context).edit().putString(KEY_PROFILES, array.toString()).apply()
     }
 
+    private fun defaultProfiles() = listOf(
+        VpnProfile("my-profile", "My VPN", "Custom", "", "VLESS", ""),
+        VpnProfile("dito-default", "DITO", "DITO", "internet.dito.ph", "VLESS", ""),
+        VpnProfile("smart-default", "Smart", "Smart", "internet", "VLESS", ""),
+        VpnProfile("tnt-default", "TNT / Talk 'N Text", "TNT", "internet", "VLESS", ""),
+        VpnProfile("globe-default", "Globe", "Globe", "internet.globe.com.ph", "VLESS", ""),
+        VpnProfile("tm-default", "TM", "TM", "internet.globe.com.ph", "VLESS", "")
+    )
+
     private fun ensureDefaults(context: Context) {
         val p = prefs(context)
-        if (p.contains(KEY_PROFILES)) return
-        save(context, listOf(
-            VpnProfile("my-profile", "My VPN", "Custom", "", "VLESS", ""),
-            VpnProfile("dito-default", "DITO", "DITO", "internet.dito.ph", "VLESS", ""),
-            VpnProfile("smart-default", "Smart", "Smart", "internet", "VLESS", ""),
-            VpnProfile("tnt-default", "TNT / Talk 'N Text", "TNT", "internet", "VLESS", ""),
-            VpnProfile("globe-default", "Globe", "Globe", "internet.globe.com.ph", "VLESS", ""),
-            VpnProfile("tm-default", "TM", "TM", "internet.globe.com.ph", "VLESS", "")
-        ))
-        p.edit().putString(KEY_ACTIVE, "my-profile").apply()
+        if (!p.contains(KEY_PROFILES)) {
+            val defaults = defaultProfiles()
+            save(context, defaults)
+            p.edit().putString(KEY_ACTIVE, defaults.first().id).apply()
+        }
     }
 }
 
@@ -99,19 +116,23 @@ fun ProfilesScreen(padding: androidx.compose.foundation.layout.PaddingValues) {
     var profiles by remember { mutableStateOf(ProfileStore.profiles(context)) }
     var activeId by rememberSaveable { mutableStateOf(ProfileStore.activeProfileId(context)) }
     var editingId by rememberSaveable { mutableStateOf(activeId) }
-    val selected = profiles.firstOrNull { it.id == editingId } ?: profiles.first()
+    val selected = profiles.firstOrNull { it.id == editingId } ?: profiles.firstOrNull() ?: VpnProfile("temp", "My VPN", "Custom", "", "VLESS", "")
     var name by remember(selected.id) { mutableStateOf(selected.name) }
     var apn by remember(selected.id) { mutableStateOf(selected.apn) }
     var protocol by remember(selected.id) { mutableStateOf(selected.protocol) }
     var server by remember(selected.id) { mutableStateOf(selected.server) }
-    fun reload() { profiles = ProfileStore.profiles(context); activeId = ProfileStore.activeProfileId(context) }
+    fun reload(editId: String? = null) {
+        profiles = ProfileStore.profiles(context)
+        activeId = ProfileStore.activeProfileId(context)
+        editingId = editId?.takeIf { id -> profiles.any { it.id == id } } ?: activeId
+    }
 
     ScreenColumn(padding) {
         Text("VPN profiles", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text("Save multiple carrier/server profiles and switch the active profile. Each profile keeps its own Xray JSON and payload draft.", color = Color.LightGray, fontSize = 13.sp)
         SectionCard("Add carrier profile") {
             listOf("DITO" to "internet.dito.ph", "Smart" to "internet", "TNT / Talk 'N Text" to "internet", "Globe" to "internet.globe.com.ph", "TM" to "internet.globe.com.ph", "Custom" to "").forEach { (carrier, value) ->
-                OutlinedButton(onClick = { ProfileStore.add(context, carrier, value); reload(); editingId = activeId }, modifier = Modifier.fillMaxWidth()) { Text("＋ $carrier") }
+                OutlinedButton(onClick = { val id = ProfileStore.add(context, carrier, value); reload(id) }, modifier = Modifier.fillMaxWidth()) { Text("＋ $carrier") }
             }
         }
         SectionCard("Saved profiles") {
@@ -125,9 +146,9 @@ fun ProfilesScreen(padding: androidx.compose.foundation.layout.PaddingValues) {
                         Text(profile.name, fontWeight = FontWeight.Bold)
                         Text("${profile.carrier} • ${profile.protocol} • APN: ${profile.apn.ifBlank { "not set" }}", color = Color.LightGray, fontSize = 11.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { ProfileStore.select(context, profile.id); editingId = profile.id; reload() }) { Text(if (profile.id == activeId) "Active" else "Select") }
+                            Button(onClick = { ProfileStore.select(context, profile.id); reload(profile.id) }) { Text(if (profile.id == activeId) "Active" else "Select") }
                             OutlinedButton(onClick = { editingId = profile.id }) { Text("Edit") }
-                            if (profiles.size > 1) OutlinedButton(onClick = { ProfileStore.delete(context, profile.id); reload(); editingId = activeId }) { Text("Delete") }
+                            if (profiles.size > 1) OutlinedButton(onClick = { ProfileStore.delete(context, profile.id); reload() }) { Text("Delete") }
                         }
                     }
                 }
@@ -141,7 +162,7 @@ fun ProfilesScreen(padding: androidx.compose.foundation.layout.PaddingValues) {
             OutlinedTextField(server, { server = it }, Modifier.fillMaxWidth(), label = { Text("Authorized proxy/server address") }, singleLine = true)
             Button(onClick = {
                 ProfileStore.update(context, selected.copy(name = name.trim().ifBlank { selected.name }, apn = apn.trim(), protocol = protocol.trim().ifBlank { "VLESS" }, server = server.trim()))
-                reload()
+                reload(selected.id)
             }, modifier = Modifier.fillMaxWidth()) { Text("Save profile") }
             Text("APN is informational only; this app does not change Android carrier settings. Use your carrier's normal data plan and an authorized proxy/server.", color = Color(0xFFFFD27A), fontSize = 12.sp)
         }
