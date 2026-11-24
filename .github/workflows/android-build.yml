@@ -58,6 +58,9 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/app/libs"
           cp libXray.aar "$GITHUB_WORKSPACE/app/libs/libXray.aar"
 
+      - name: Run parser JVM unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest
+
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
