@@ -7,7 +7,6 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
-/** Parsed share-link profile and its generated Xray outbound/config draft. */
 data class ImportedProfile(
     val name: String,
     val protocol: String,
@@ -23,13 +22,11 @@ data class ImportedProfile(
         .toString(2)
 }
 
-/** Supports common VLESS, VMess, Trojan and SIP002/legacy Shadowsocks share links. */
 object ProfileLinkParser {
     fun parse(input: String): ImportedProfile {
         val text = input.trim()
         require(text.isNotEmpty()) { "Paste a share link first." }
-        val scheme = text.substringBefore(":").lowercase()
-        return when (scheme) {
+        return when (text.substringBefore(":").lowercase()) {
             "vless" -> parseVless(text)
             "vmess" -> parseVmess(text)
             "trojan" -> parseTrojan(text)
@@ -81,8 +78,7 @@ object ProfileLinkParser {
         json.optString("sni").takeIf { it.isNotBlank() }?.let { q["sni"] = it }
         json.optString("fp").takeIf { it.isNotBlank() }?.let { q["fp"] = it }
         applyStreamSettings(outbound, network, security, q)
-        val title = json.optString("ps").ifBlank { "VMess $server:$port" }
-        return ImportedProfile(title, "VMess", server, port, outbound)
+        return ImportedProfile(json.optString("ps").ifBlank { "VMess $server:$port" }, "VMess", server, port, outbound)
     }
 
     private fun parseTrojan(text: String): ImportedProfile {
@@ -92,11 +88,11 @@ object ProfileLinkParser {
         val server = requireServer(uri)
         val port = requirePort(uri)
         val q = query(uri)
-        val trojanServer = JSONObject().put("address", server).put("port", port).put("password", password)
+        val serverEntry = JSONObject().put("address", server).put("port", port).put("password", password)
         val outbound = JSONObject()
             .put("tag", "proxy")
             .put("protocol", "trojan")
-            .put("settings", JSONObject().put("servers", JSONArray().put(trojanServer)))
+            .put("settings", JSONObject().put("servers", JSONArray().put(serverEntry)))
         applyStreamSettings(outbound, q["type"] ?: q["network"] ?: "tcp", q["security"] ?: "tls", q)
         return ImportedProfile(label(uri, "Trojan $server:$port"), "Trojan", server, port, outbound)
     }
