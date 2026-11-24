@@ -350,10 +350,10 @@ fun SectionCard(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun ConfigScreen(padding: PaddingValues) {
     val context = LocalContext.current
-    val profileId = ProfileStore.activeProfileId(context)
+    var profileId by rememberSaveable { mutableStateOf(ProfileStore.activeProfileId(context)) }
     var jsonText by rememberSaveable(profileId) { mutableStateOf(LocalStore.readJson(context)) }
     var shareLink by rememberSaveable(profileId) { mutableStateOf("") }
-    var importStatus by rememberSaveable(profileId) { mutableStateOf("") }
+    var importStatus by rememberSaveable { mutableStateOf("") }
     var validation by rememberSaveable { mutableStateOf("Draft not validated") }
     var tunnelMode by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readMode(context)) }
     var httpHost by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpHost(context)) }
@@ -380,36 +380,58 @@ private fun ConfigScreen(padding: PaddingValues) {
             Text("SSH mode is selectable, but the SSH tunnel engine and SSH credentials are not integrated yet.", color = Color(0xFFFFD27A), fontSize = 12.sp)
         }
         Text("Xray configuration", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Paste a VLESS, VMess, Trojan, or Shadowsocks link to import an outbound JSON draft.", color = Color.LightGray, fontSize = 13.sp)
+        Text("Paste one share link, multi-link subscription text, Base64 subscription, or Xray JSON. Multi-node imports are saved as separate profiles; subscription URLs are not fetched automatically.", color = Color.LightGray, fontSize = 13.sp)
         OutlinedTextField(
             value = shareLink,
             onValueChange = { shareLink = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Share link") },
+            label = { Text("Share link(s) / subscription text / Xray JSON") },
             minLines = 2,
             maxLines = 4,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
         )
         Button(onClick = {
             try {
-                val imported = ProfileLinkParser.parse(shareLink)
-                jsonText = imported.toXrayConfig()
-                LocalStore.writeJson(context, jsonText)
-                ProfileStore.profiles(context).firstOrNull { it.id == profileId }?.let { saved ->
-                    ProfileStore.update(context, saved.copy(name = imported.name, protocol = imported.protocol, server = imported.server))
+                val importedNodes = SubscriptionParser.parse(shareLink)
+                if (importedNodes.size == 1) {
+                    val imported = importedNodes.first()
+                    jsonText = imported.toXrayConfig()
+                    LocalStore.writeJson(context, jsonText)
+                    ProfileStore.profiles(context).firstOrNull { it.id == profileId }?.let { saved ->
+                        ProfileStore.update(context, saved.copy(name = imported.name, protocol = imported.protocol, server = imported.server))
+                    }
+                } else {
+                    val createdIds = mutableListOf<String>()
+                    importedNodes.forEach { imported ->
+                        ProfileStore.add(context, "Imported", "")
+                        val created = ProfileStore.profiles(context).lastOrNull()
+                            ?: throw IllegalStateException("Could not create saved profile")
+                        ProfileStore.update(context, created.copy(
+                            name = imported.name.take(64),
+                            carrier = "Imported",
+                            apn = "",
+                            protocol = imported.protocol,
+                            server = imported.server
+                        ))
+                        LocalStore.writeJson(context, imported.toXrayConfig())
+                        createdIds += created.id
+                    }
+                    ProfileStore.select(context, createdIds.first())
+                    profileId = createdIds.first()
+                    jsonText = LocalStore.readJson(context)
                 }
-                if (tunnelMode != TunnelModeStore.MODE_XRAY) {
-                    tunnelMode = TunnelModeStore.MODE_XRAY
-                    TunnelModeStore.saveMode(context, tunnelMode)
-                }
-                importStatus = if (imported.warnings.isEmpty()) "Imported ${imported.protocol} · ${imported.server}:${imported.port}"
-                    else imported.warnings.joinToString(" ")
-                validation = "Imported outbound draft. Check the JSON before connecting."
+                tunnelMode = TunnelModeStore.MODE_XRAY
+                TunnelModeStore.saveMode(context, TunnelModeStore.MODE_XRAY)
+                val warnings = importedNodes.flatMap { it.warnings }.distinct()
+                importStatus = "Imported ${importedNodes.size} node(s) as saved profile(s)" +
+                    if (warnings.isEmpty()) "" else " · " + warnings.joinToString(" ")
+                validation = "Imported profile draft(s). Review JSON before connecting."
+                shareLink = ""
             } catch (error: Exception) {
-                importStatus = "Import failed: ${error.message ?: "invalid share link"}"
+                importStatus = "Import failed: ${error.message ?: "invalid subscription"}"
                 validation = importStatus
             }
-        }, modifier = Modifier.fillMaxWidth(), enabled = shareLink.isNotBlank()) { Text("Import share link") }
+        }, modifier = Modifier.fillMaxWidth(), enabled = shareLink.isNotBlank()) { Text("Import node(s)") }
         if (importStatus.isNotBlank()) Text(importStatus, color = if (importStatus.startsWith("Imported")) Green else Color(0xFFFFD27A), fontSize = 12.sp)
         Text("Edit an Xray JSON profile. Validation checks syntax only, not every Xray field.", color = Color.LightGray, fontSize = 13.sp)
         OutlinedTextField(
