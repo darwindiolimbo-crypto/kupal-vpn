@@ -13,11 +13,23 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.2.0"
+        buildConfigField("String", "ADMOB_APP_ID", "\"ca-app-pub-9471897591250086~3475722796\"")
+        buildConfigField("String", "INTERSTITIAL_AD_UNIT_ID", "\"ca-app-pub-9471897591250086/2836147281\"")
+        manifestPlaceholders["ADMOB_APP_ID"] = "ca-app-pub-9471897591250086~3475722796"
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+
+    buildTypes {
+        debug {
+            buildConfigField("String", "ADMOB_APP_ID", "\"ca-app-pub-3940256099942544~3347511713\"")
+            buildConfigField("String", "INTERSTITIAL_AD_UNIT_ID", "\"ca-app-pub-3940256099942544/1033173712\"")
+            manifestPlaceholders["ADMOB_APP_ID"] = "ca-app-pub-3940256099942544~3347511713"
+        }
     }
 
     compileOptions {
@@ -41,7 +53,7 @@ dependencies {
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
-    implementation(files("libs/libXray.aar"))
+    if (file("libs/libXray.aar").exists()) implementation(files("libs/libXray.aar"))
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
@@ -51,6 +63,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 
     // Google Mobile Ads SDK + User Messaging Platform consent SDK.
     implementation("com.google.android.gms:play-services-ads:25.5.0")
