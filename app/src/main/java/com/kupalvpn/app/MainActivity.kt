@@ -65,6 +65,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.runtime.DisposableEffect
+import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.AdListener
+import com.google.android.gms.ads.LoadAdError
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
@@ -344,6 +351,7 @@ private fun HomeScreen(
             onEnabledChange = onAdsEnabledChange,
             onShowAd = onWatchAd
         )
+        if (adsEnabled && adsController.adsReady) HomeBannerAd()
         SectionCard("Quick status") {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Engines", color = Color.LightGray)
@@ -353,6 +361,37 @@ private fun HomeScreen(
         }
         CrashDiagnosticsCard()
     }
+}
+
+
+private const val HOME_BANNER_AD_UNIT_ID = "ca-app-pub-9471897591250086/8384504352"
+
+@Composable
+private fun HomeBannerAd() {
+    val activity = LocalContext.current as? Activity ?: return
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val adView = remember(activity) {
+        AdView(activity).apply {
+            adUnitId = HOME_BANNER_AD_UNIT_ID
+            setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
+            adListener = object : AdListener() {
+                override fun onAdFailedToLoad(error: LoadAdError) {
+                    // Banner failures should never affect VPN controls or Home rendering.
+                }
+            }
+            loadAd(com.google.android.gms.ads.AdRequest.Builder().build())
+        }
+    }
+    DisposableEffect(adView) {
+        onDispose { adView.destroy() }
+    }
+    AndroidView(
+        modifier = Modifier.fillMaxWidth(),
+        factory = { adView },
+        update = { view ->
+            view.setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
+        }
+    )
 }
 
 @Composable
