@@ -1,19 +1,24 @@
-KUPAL VPN STARTER — STATUS
+KUPAL VPN — DEVELOPMENT STATUS
 
-Implemented:
-- Compose UI shell with Home / Config / Payload / Ads tabs
-- Local JSON profile draft and JSON syntax validation
-- HTTP payload template editor and placeholder preview
-- UMP consent initialization and privacy options button
-- AdMob interstitial test integration
-- 5–60 minute countdown and safe-state gate (no interstitial while VPN preview is connected)
+Implemented in source:
+- Jetpack Compose dark UI: Home, Profile, Config, Payload, Free Servers, Ads
+- Multiple saved profile drafts and protocol/server metadata
+- Share-link import parser for VLESS, VMess (Base64 JSON), Trojan, SIP002 and legacy Shadowsocks
+- Outbound draft mapping for common TCP, WebSocket, gRPC, HTTP/2, XHTTP, KCP, QUIC, TLS and REALITY fields
+- Unsupported transport rejection and Shadowsocks-plugin warning
+- Xray JSON editor/syntax validation
+- Payload/setup template editor and copyable rendered preview
+- KupalVpnService TUN lifecycle, Xray libXray run/stop, FD handoff, socket protect and DNS callback source
+- Free Nodes Radar source link (copy-only; subscription fetching/import not implemented)
+- UMP consent update and privacy options
+- 15–120 minute manual interstitial timer (default 30); never auto-show; blocked while VPN is connected
+- Rewarded video uses Google's official test unit only (no production rewarded ID provided)
+- Release AdMob App ID/interstitial wired; debug uses official Google test IDs
+- Parser JVM tests added; GitHub Actions workflow includes native libXray build and debug APK pipeline
 
-Not implemented yet:
-- Xray-core native Android library/build
-- Android VpnService TUN packet processing and Xray FD handoff
-- Real connect/disconnect behavior
-- VLESS/VMess/Trojan/SS URI parser and QR scanning
-- Live ping, upload/download counters, and server tests
-- Production AdMob App ID/ad unit IDs
-
-The Connect button is intentionally marked PREVIEW ONLY.
+Not verified / still incomplete:
+- No local Gradle/Android SDK/NDK, so APK build and unit tests were not executed here
+- Native AAR and generated API not locally built or runtime-verified
+- TUN routing, DNS, socket protect, connection/reconnection and stop lifecycle require device tests
+- Free subscription fetch/parse/import, QR import, multi-select simultaneous tunnels, traffic counters, ping and per-app routing remain
+- SSH tunnel engine is not implemented; payload templates are previews only, not injected into tunnel transports
