@@ -126,14 +126,18 @@ fun ProfilesScreen(padding: androidx.compose.foundation.layout.PaddingValues) {
     var apn by remember(selected.id) { mutableStateOf(selected.apn) }
     var protocol by remember(selected.id) { mutableStateOf(selected.protocol) }
     var server by remember(selected.id) { mutableStateOf(selected.server) }
-    fun reload() { profiles = ProfileStore.profiles(context); activeId = ProfileStore.activeProfileId(context) }
+    fun reload(editId: String? = null) {
+        profiles = ProfileStore.profiles(context)
+        activeId = ProfileStore.activeProfileId(context)
+        editingId = editId?.takeIf { id -> profiles.any { it.id == id } } ?: activeId
+    }
 
     ScreenColumn(padding) {
         Text("VPN profiles", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text("Save multiple carrier/server profiles and switch the active profile. Each profile keeps its own Xray JSON and payload draft.", color = Color.LightGray, fontSize = 13.sp)
         SectionCard("Add carrier profile") {
             listOf("DITO" to "internet.dito.ph", "Smart" to "internet", "TNT / Talk 'N Text" to "internet", "Globe" to "internet.globe.com.ph", "TM" to "internet.globe.com.ph", "Custom" to "").forEach { (carrier, value) ->
-                OutlinedButton(onClick = { ProfileStore.add(context, carrier, value); reload(); editingId = activeId }, modifier = Modifier.fillMaxWidth()) { Text("＋ $carrier") }
+                OutlinedButton(onClick = { val id = ProfileStore.add(context, carrier, value); reload(id) }, modifier = Modifier.fillMaxWidth()) { Text("＋ $carrier") }
             }
         }
         SectionCard("Saved profiles") {
@@ -147,9 +151,9 @@ fun ProfilesScreen(padding: androidx.compose.foundation.layout.PaddingValues) {
                         Text(profile.name, fontWeight = FontWeight.Bold)
                         Text("${profile.carrier} • ${profile.protocol} • APN: ${profile.apn.ifBlank { "not set" }}", color = Color.LightGray, fontSize = 11.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { ProfileStore.select(context, profile.id); editingId = profile.id; reload() }) { Text(if (profile.id == activeId) "Active" else "Select") }
+                            Button(onClick = { ProfileStore.select(context, profile.id); reload(profile.id) }) { Text(if (profile.id == activeId) "Active" else "Select") }
                             OutlinedButton(onClick = { editingId = profile.id }) { Text("Edit") }
-                            if (profiles.size > 1) OutlinedButton(onClick = { ProfileStore.delete(context, profile.id); reload(); editingId = activeId }) { Text("Delete") }
+                            if (profiles.size > 1) OutlinedButton(onClick = { ProfileStore.delete(context, profile.id); reload() }) { Text("Delete") }
                         }
                     }
                 }
@@ -163,7 +167,7 @@ fun ProfilesScreen(padding: androidx.compose.foundation.layout.PaddingValues) {
             OutlinedTextField(server, { server = it }, Modifier.fillMaxWidth(), label = { Text("Authorized proxy/server address") }, singleLine = true)
             Button(onClick = {
                 ProfileStore.update(context, selected.copy(name = name.trim().ifBlank { selected.name }, apn = apn.trim(), protocol = protocol.trim().ifBlank { "VLESS" }, server = server.trim()))
-                reload()
+                reload(selected.id)
             }, modifier = Modifier.fillMaxWidth()) { Text("Save profile") }
             Text("APN is informational only; this app does not change Android carrier settings. Use your carrier's normal data plan and an authorized proxy/server.", color = Color(0xFFFFD27A), fontSize = 12.sp)
         }
