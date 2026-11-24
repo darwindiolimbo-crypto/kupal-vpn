@@ -35,7 +35,7 @@ class AdsController(private val activity: Activity) {
                     if (formError != null) lastStatus = "Consent form: ${formError.message}"
                     if (consentInformation.canRequestAds()) initializeAds()
                     else lastStatus = "Ads are unavailable until consent permits requests"
-                },
+                }
             },
             { requestError ->
                 lastStatus = "Consent update: ${requestError.message}"
