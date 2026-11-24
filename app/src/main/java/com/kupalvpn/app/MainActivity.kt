@@ -64,6 +64,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.runtime.DisposableEffect
+import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.AdListener
+import com.google.android.gms.ads.LoadAdError
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
@@ -305,8 +312,40 @@ private fun HomeScreen(
             Text("Ad status: ${adsController.lastStatus}", fontSize = 11.sp, color = Color.LightGray)
             OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) { Text("Privacy & consent") }
         }
+        HomeBannerAd()
+        }
     }
 }
+
+@Composable
+private fun HomeBannerAd() {
+    val activity = LocalContext.current as? Activity ?: return
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    DisposableEffect(activity) {
+        onDispose { }
+    }
+    AndroidView(
+        modifier = Modifier.fillMaxWidth(),
+        factory = { context ->
+            AdView(context).apply {
+                adUnitId = HOME_BANNER_AD_UNIT_ID
+                setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
+                adListener = object : AdListener() {
+                    override fun onAdFailedToLoad(error: LoadAdError) {
+                        // Keep Home usable if a banner request fails.
+                    }
+                }
+                loadAd(com.google.android.gms.ads.AdRequest.Builder().build())
+            }
+        },
+        update = { view ->
+            val currentWidth = screenWidthDp
+            view.setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, currentWidth))
+        }
+    )
+}
+
+private const val HOME_BANNER_AD_UNIT_ID = "ca-app-pub-9471897591250086/8384504352"
 
 @Composable
 private fun MetricCard(label: String, value: String, modifier: Modifier = Modifier) {
