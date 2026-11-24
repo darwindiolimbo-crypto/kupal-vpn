@@ -29,6 +29,11 @@ class KupalVpnService : VpnService() {
     private val vpnTimeTick = object : Runnable {
         override fun run() {
             if (tun == null) return
+            val activeSsh = sshTunnel
+            if (activeSsh != null && !activeSsh.isRunning()) {
+                stopTunnel("SSH session or native tunnel stopped unexpectedly. Check the SSH host, credentials, and forwarding service.")
+                return
+            }
             val remaining = LocalStore.remainingVpnMillis(this@KupalVpnService)
             if (remaining <= 0L) {
                 updateNotification("VPN time expired")
@@ -210,7 +215,7 @@ class KupalVpnService : VpnService() {
         return clazz
     }
 
-    private fun stopTunnel() {
+    private fun stopTunnel(reason: String? = null) {
         stopRequested = true
         try {
             if (coreStarted) invokeCore("stopXray")
@@ -230,7 +235,7 @@ class KupalVpnService : VpnService() {
             }
             tun?.close()
             tun = null
-            setState("disconnected")
+            setState(if (reason.isNullOrBlank()) "disconnected" else "error: $reason")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
