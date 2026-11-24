@@ -60,14 +60,12 @@ class ProfileLinkParserTest {
         assertEquals("legacy.example", legacyProfile.server)
     }
 
-
     @Test fun generatedDraftHasOutboundsAndNoActiveTunYet() {
         val profile = ProfileLinkParser.parse("vless://11111111-2222-3333-4444-555555555555@host.example:443#x")
         val config = JSONObject(profile.toXrayConfig())
         assertEquals(1, config.getJSONArray("outbounds").length())
         assertEquals(0, config.getJSONArray("inbounds").length())
     }
-
 
     @Test fun unsupportedSchemeIsRejectedClearly() {
         val message = try {

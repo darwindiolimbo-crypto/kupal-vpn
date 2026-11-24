@@ -23,7 +23,6 @@ data class ImportedProfile(
         .toString(2)
 }
 
-
 /** Supports common VLESS, VMess, Trojan and SIP002/legacy Shadowsocks share links. */
 object ProfileLinkParser {
     fun parse(input: String): ImportedProfile {
@@ -59,11 +58,9 @@ object ProfileLinkParser {
         return ImportedProfile(label(uri, "VLESS $server:$port"), "VLESS", server, port, outbound)
     }
 
-
     private fun parseVmess(text: String): ImportedProfile {
         val raw = text.substringAfter("://", "").substringBefore('#')
-        val jsonText = decodeBase64(raw)
-        val json = JSONObject(jsonText)
+        val json = JSONObject(decodeBase64(raw))
         val server = json.optString("add").trim()
         val port = json.optString("port").toIntOrNull() ?: json.optInt("port")
         val uuid = json.optString("id")
@@ -88,7 +85,6 @@ object ProfileLinkParser {
         return ImportedProfile(title, "VMess", server, port, outbound)
     }
 
-
     private fun parseTrojan(text: String): ImportedProfile {
         val uri = URI(text)
         val password = decode(uri.rawUserInfo ?: "")
@@ -104,7 +100,6 @@ object ProfileLinkParser {
         applyStreamSettings(outbound, q["type"] ?: q["network"] ?: "tcp", q["security"] ?: "tls", q)
         return ImportedProfile(label(uri, "Trojan $server:$port"), "Trojan", server, port, outbound)
     }
-
 
     private fun parseShadowsocks(text: String): ImportedProfile {
         val body = text.substringAfter("://", "").substringBefore('#')
@@ -130,7 +125,6 @@ object ProfileLinkParser {
         val warnings = if (!plugin.isNullOrBlank()) listOf("Shadowsocks plugin '$plugin' is not imported; this node may require plugin support.") else emptyList()
         return ImportedProfile(labelFromFragment(text), "Shadowsocks", server, port, outbound, warnings)
     }
-
 
     private fun applyStreamSettings(outbound: JSONObject, network: String, security: String, q: Map<String, String>) {
         val normalizedNetwork = when (network.lowercase()) {
