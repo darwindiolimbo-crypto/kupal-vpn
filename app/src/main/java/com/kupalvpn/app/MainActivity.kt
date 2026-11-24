@@ -312,13 +312,14 @@ private fun HomeScreen(
             Text("Ad status: ${adsController.lastStatus}", fontSize = 11.sp, color = Color.LightGray)
             OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) { Text("Privacy & consent") }
         }
-        HomeBannerAd()
+        if (adsEnabled && adsController.adsReady) HomeBannerAd(adsController.adsReady)
         }
     }
 }
 
 @Composable
-private fun HomeBannerAd() {
+private fun HomeBannerAd(adsReady: Boolean) {
+    if (!adsReady) return
     val activity = LocalContext.current as? Activity ?: return
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val bannerView = remember(activity) {
