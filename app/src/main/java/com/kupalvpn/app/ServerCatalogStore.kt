@@ -52,7 +52,7 @@ object ServerCatalogStore {
             context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(BODY,body).putLong(FETCHED,result.fetchedAt).apply()
             result
         } catch(e:Exception) {
-            throw IllegalStateException("MobiVPN server update failed: \${e.message ?: e.javaClass.simpleName}",e)
+            throw IllegalStateException("MobiVPN server update failed: ${e.message ?: e.javaClass.simpleName}",e)
         } finally { c?.disconnect() }
     }
 
@@ -75,10 +75,10 @@ object ServerCatalogStore {
             val config=configText.takeIf { it.trimStart().startsWith("{") || it.trimStart().startsWith("[") }.orEmpty()
             val payloadTemplate=pick(o,listOf("payload","http_payload","payload_text","request_payload"))
             if(host.isBlank() && link.isBlank() && config.isBlank() && payloadTemplate.isBlank()) return
-            val name=pick(o,listOf("server_name","serverName","name","title","remark","label","display_name","payload_name")).ifBlank { host.ifBlank { "Server \${rows.size+1}" } }
+            val name=pick(o,listOf("server_name","serverName","name","title","remark","label","display_name","payload_name")).ifBlank { host.ifBlank { "Server ${rows.size+1}" } }
             val country=pick(o,listOf("server_country","serverCountry","country","location","server_location","serverLocation","region","city"))
             val desc=pick(o,listOf("description","details","note","status","server_location_source"))
-            val id=pick(o,listOf("id","server_id","serverId","config_id","uuid")).ifBlank { "\${protocol.lowercase()}|\${host.lowercase()}|\${port}|\${name.lowercase()}" }
+            val id=pick(o,listOf("id","server_id","serverId","config_id","uuid")).ifBlank { "${protocol.lowercase()}|${host.lowercase()}|${port}|${name.lowercase()}" }
             if(ids.add(id)) rows += CatalogServer(id,name,protocol,host.removePrefix("[").removeSuffix("]"),port,country,link,config,desc,payloadTemplate)
         }
         fun walk(value:Any?,depth:Int) {
@@ -130,7 +130,7 @@ object ServerCatalogStore {
             }
             if(last.isNotBlank()) ProfileStore.select(context,last)
             TunnelModeStore.saveMode(context,TunnelModeStore.MODE_XRAY)
-            return "Imported \${nodes.size} server profile(s)."
+            return "Imported ${nodes.size} server profile(s)."
         }
         if(item.configJson.isNotBlank()) {
             val obj=JSONObject(item.configJson)
@@ -140,7 +140,7 @@ object ServerCatalogStore {
             val current=ProfileStore.profiles(context).first { it.id==id }
             ProfileStore.update(context,current.copy(name=item.name.take(64),protocol=item.protocol,server=item.host))
             LocalStore.writeJson(context,json); TunnelModeStore.saveMode(context,TunnelModeStore.MODE_XRAY)
-            return "Added \${item.name} as an Xray profile."
+            return "Added ${item.name} as an Xray profile."
         }
         if(item.host.isNotBlank() && item.port in 1..65535 && item.protocol.contains("ssh",true)) {
             val id=ProfileStore.add(context,"Public catalogue","")
