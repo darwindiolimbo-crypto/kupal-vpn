@@ -402,11 +402,11 @@ private fun ConfigScreen(padding: PaddingValues) {
                     tunnelMode = TunnelModeStore.MODE_XRAY
                     TunnelModeStore.saveMode(context, tunnelMode)
                 }
-                importStatus = if (imported.warnings.isEmpty()) "Imported \${imported.protocol} · \${imported.server}:\${imported.port}"
+                importStatus = if (imported.warnings.isEmpty()) "Imported ${imported.protocol} · ${imported.server}:${imported.port}"
                     else imported.warnings.joinToString(" ")
                 validation = "Imported outbound draft. Check the JSON before connecting."
             } catch (error: Exception) {
-                importStatus = "Import failed: \${error.message ?: "invalid share link"}"
+                importStatus = "Import failed: ${error.message ?: "invalid share link"}"
                 validation = importStatus
             }
         }, modifier = Modifier.fillMaxWidth(), enabled = shareLink.isNotBlank()) { Text("Import share link") }
@@ -578,7 +578,7 @@ private fun AdsScreen(
         Text("Watch a rewarded video to unlock free VPN usage.", color = Color.LightGray, fontSize = 13.sp)
         SectionCard("Timed interstitial") {
             val timerDue = interstitialRemainingMillis <= 0L
-            Text("Interval: \${interstitialIntervalMinutes} minutes", fontWeight = FontWeight.SemiBold)
+            Text("Interval: ${interstitialIntervalMinutes} minutes", fontWeight = FontWeight.SemiBold)
             Slider(
                 value = interstitialIntervalMinutes.toFloat(),
                 onValueChange = { onIntervalChange(it.toInt().coerceIn(15, 120)) },
@@ -586,7 +586,7 @@ private fun AdsScreen(
                 steps = 6,
                 enabled = adsEnabled
             )
-            Text("Next eligible: \${if (!adsEnabled) "PAUSED" else if (timerDue) "READY" else formatCountdown(interstitialRemainingMillis)}", color = if (timerDue && adsEnabled) Green else Color.LightGray, fontSize = 12.sp)
+            Text("Next eligible: ${if (!adsEnabled) "PAUSED" else if (timerDue) "READY" else formatCountdown(interstitialRemainingMillis)}", color = if (timerDue && adsEnabled) Green else Color.LightGray, fontSize = 12.sp)
             Text("Timer unlocks a manual ad only. Interstitials are never auto-shown and are blocked while the VPN is connected.", color = Color.LightGray, fontSize = 12.sp)
             Button(onClick = onShowInterstitial, enabled = adsEnabled && timerDue && !previewConnected, modifier = Modifier.fillMaxWidth()) {
                 Text("Show eligible interstitial")
