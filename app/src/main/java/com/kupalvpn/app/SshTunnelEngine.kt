@@ -478,7 +478,12 @@ class SshTunnelEngine(
                 try {
                     check(service.protect(raw)) { "Android failed to protect the SSH socket" }
                     raw.connect(InetSocketAddress(address, connectPort), 20_000)
-                    raw.soTimeout = 15_000
+                    raw.tcpNoDelay = true
+                    raw.keepAlive = true
+                    // Keep a finite timeout only while negotiating the HTTP/TLS
+                    // preamble. A 15-second socket read timeout would otherwise
+                    // kill an otherwise healthy SSH session while it is idle.
+                    raw.soTimeout = 20_000
                     var active: Socket = raw
                     if (config.mode == SshConfig.MODE_TLS_PAYLOAD_DIRECT || config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
                         // The SSH target hostname, not the HTTP proxy hostname, is the
@@ -506,11 +511,15 @@ class SshTunnelEngine(
                             write(payload.toByteArray(Charsets.ISO_8859_1))
                             flush()
                         }
-                        val response = readHttpResponseHeader(active.getInputStream())
-                        val status = response.lineSequence().firstOrNull().orEmpty()
-                        val statusCode = status.split(' ').getOrNull(1)?.toIntOrNull() ?: 0
-                        check(statusCode in 200..299) { "Payload proxy rejected the tunnel: $status" }
+                        val status = readSuccessfulHttpResponse(active.getInputStream())
+                        check(status.first in 200..299 || status.first == 101) {
+                            "Payload proxy rejected the tunnel: ${status.second}"
+                        }
                     }
+                    // JSch owns the socket after this point. SSH keepalives are
+                    // managed by Session; do not leave the transport's negotiation
+                    // timeout enabled for the lifetime of the VPN.
+                    active.soTimeout = 0
                     return active
                 } catch (error: Exception) {
                     lastError = error
@@ -569,6 +578,17 @@ class SshTunnelEngine(
                 if (matched == marker.size) return bytes.toByteArray().toString(Charsets.ISO_8859_1)
             }
             error("HTTP response header exceeded 32 KB")
+        }
+
+        /** Accepts normal CONNECT success and HTTP 101 upgrade, skipping 100 Continue. */
+        private fun readSuccessfulHttpResponse(input: InputStream): Pair<Int, String> {
+            repeat(4) {
+                val header = readHttpResponseHeader(input)
+                val status = header.lineSequence().firstOrNull().orEmpty().trim()
+                val code = status.split(Regex("\\s+")).getOrNull(1)?.toIntOrNull() ?: 0
+                if (code != 100) return code to status
+            }
+            error("Proxy sent too many interim HTTP responses")
         }
     }
 
