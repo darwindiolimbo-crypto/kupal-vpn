@@ -21,6 +21,8 @@ class AdsController(private val activity: Activity) {
     private var initialized = false
     var lastStatus: String by mutableStateOf("Waiting for privacy consent")
         private set
+    var adsReady: Boolean by mutableStateOf(false)
+        private set
 
     fun requestConsentAndInitialize() {
         val consentInformation = UserMessagingPlatform.getConsentInformation(activity)
@@ -48,6 +50,7 @@ class AdsController(private val activity: Activity) {
         Thread {
             MobileAds.initialize(activity) {
                 activity.runOnUiThread {
+                    adsReady = true
                     lastStatus = "AdMob initialized"
                     loadRewardedAd()
                 }
