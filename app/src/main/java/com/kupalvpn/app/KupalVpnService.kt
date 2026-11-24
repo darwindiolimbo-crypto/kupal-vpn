@@ -17,9 +17,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 
 class KupalVpnService : VpnService() {
-    private var tun: ParcelFileDescriptor? = null
-    private var coreClass: Class<*>? = null
-    private var sshTunnel: SshTunnelEngine? = null
+    @Volatile private var tun: ParcelFileDescriptor? = null
+    @Volatile private var coreClass: Class<*>? = null
+    @Volatile private var sshTunnel: SshTunnelEngine? = null
+    @Volatile private var coreStarted = false
     @Volatile private var stopRequested = false
     private val starting = AtomicBoolean(false)
     private val startExecutor = Executors.newSingleThreadExecutor()
@@ -86,7 +87,7 @@ class KupalVpnService : VpnService() {
     }
 
     private fun startTunnel(configText: String, startId: Int) {
-        if (tun != null) return
+        if (tun != null) { starting.set(false); return }
         setState("connecting")
         try {
             val builder = Builder()
@@ -120,6 +121,7 @@ class KupalVpnService : VpnService() {
                 if (existingTun == null) inbounds.put(tunInbound) else inbounds.put(existingTun, tunInbound)
                 registerSocketProtection()
                 invokeCore("runXray", JSONObject().put("xrayJson", config.toString()))
+                coreStarted = true
             }
             check(!stopRequested) { "Connection cancelled" }
             if (!LocalStore.startVpnTime(this)) error("VPN time credit expired before connection")
@@ -130,6 +132,8 @@ class KupalVpnService : VpnService() {
         } catch (error: Throwable) {
             Log.e(TAG, "Unable to start VPN tunnel", error)
             setState(if (stopRequested) "disconnected" else "error: ${error.message ?: error.javaClass.simpleName}")
+            runCatching { if (coreStarted) invokeCore("stopXray") }
+            coreStarted = false
             runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
             runCatching { sshTunnel?.stop() }
             sshTunnel = null
@@ -188,12 +192,11 @@ class KupalVpnService : VpnService() {
     private fun stopTunnel() {
         stopRequested = true
         try {
-            if (tun != null && sshTunnel == null && coreClass != null) {
-                invokeCore("stopXray")
-            }
+            if (coreStarted) invokeCore("stopXray")
         } catch (error: Exception) {
             Log.w(TAG, "Xray stop returned an error", error)
         } finally {
+            coreStarted = false
             runCatching { sshTunnel?.stop() }
             sshTunnel = null
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
@@ -219,7 +222,7 @@ class KupalVpnService : VpnService() {
 
     override fun onDestroy() {
         stopRequested = true
-        if (tun != null || sshTunnel != null) stopTunnel()
+        if (tun != null || coreStarted || sshTunnel != null) stopTunnel()
         startExecutor.shutdownNow()
         super.onDestroy()
     }
