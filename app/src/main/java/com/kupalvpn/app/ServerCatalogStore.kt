@@ -1,0 +1,140 @@
+package com.kupalvpn.app
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+data class CatalogServer(val id:String,val name:String,val protocol:String,val host:String,val port:Int,val country:String,val shareText:String,val configJson:String,val description:String)
+data class ServerCatalogSnapshot(val items:List<CatalogServer>,val version:String,val updatedAt:String,val fetchedAt:Long,val notice:String)
+
+object ServerCatalogStore {
+    const val CATALOG_URL = "https://www.juanscript.codes/api/catalog?users=1&xray_payload_proxy=1"
+    private const val PREFS="kupal_mobivpn_catalog"
+    private const val BODY="catalog_body"
+    private const val FETCHED="catalog_fetched"
+    private const val LIMIT=2*1024*1024
+
+    fun read(context:Context):ServerCatalogSnapshot {
+        val p=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+        val body=p.getString(BODY,null)
+        val fetched=p.getLong(FETCHED,0L)
+        if(body.isNullOrBlank()) return ServerCatalogSnapshot(emptyList(),"—","—",fetched,"No cached server list")
+        return runCatching { parse(body,fetched) }.getOrElse { ServerCatalogSnapshot(emptyList(),"—","—",fetched,"Cached server data is invalid") }
+    }
+
+    suspend fun refresh(context:Context):ServerCatalogSnapshot = withContext(Dispatchers.IO) {
+        var c:HttpURLConnection?=null
+        try {
+            c=(URL(CATALOG_URL).openConnection() as HttpURLConnection).apply {
+                requestMethod="GET"; connectTimeout=15000; readTimeout=20000; useCaches=false; instanceFollowRedirects=true
+                setRequestProperty("Accept","application/json")
+                setRequestProperty("Cache-Control","no-cache")
+                setRequestProperty("User-Agent","KupalVPN-Android/0.2.0")
+            }
+            val code=c.responseCode
+            if(code !in 200..299) error("Server catalogue returned HTTP $code")
+            val body=c.inputStream.use { input ->
+                val output=java.io.ByteArrayOutputStream()
+                val buffer=ByteArray(8192)
+                var total=0
+                while(true) {
+                    val n=input.read(buffer); if(n<0) break
+                    total+=n; require(total<=LIMIT) { "Catalogue response exceeded 2 MB" }
+                    output.write(buffer,0,n)
+                }
+                output.toByteArray().toString(Charsets.UTF_8)
+            }
+            val result=parse(body,System.currentTimeMillis())
+            context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(BODY,body).putLong(FETCHED,result.fetchedAt).apply()
+            result
+        } catch(e:Exception) {
+            throw IllegalStateException("MobiVPN server update failed: \${e.message ?: e.javaClass.simpleName}",e)
+        } finally { c?.disconnect() }
+    }
+
+    internal fun parse(body:String,fetchedAt:Long=0L):ServerCatalogSnapshot {
+        val root=if(body.trimStart().startsWith("[")) JSONObject().put("data",JSONArray(body)) else JSONObject(body)
+        val rows=mutableListOf<CatalogServer>(); val ids=mutableSetOf<String>()
+        val groups=listOf("servers","server_list","serverList","prebuilt_configs","prebuiltConfigs","prebuilt_xrays","prebuiltXrays","configs","nodes","items","entries","catalog","data","result")
+        fun pick(o:JSONObject,keys:List<String>):String {
+            for(k in keys) { val v=o.opt(k); if(v is String && v.isNotBlank()) return v.trim() }
+            return ""
+        }
+        fun add(o:JSONObject) {
+            val endpoint=o.optJSONObject("server") ?: o.optJSONObject("serverData") ?: o
+            val host=pick(endpoint,listOf("server_host","serverHost","server_ip","serverIp","host","ip","address","hostname","domain","server"))
+            val port=pick(endpoint,listOf("server_port","serverPort","ssh_port","port")).toIntOrNull() ?: endpoint.optInt("port",0)
+            val protocol=pick(o,listOf("protocol","type","engine","server_type","category","mode")).ifBlank { pick(endpoint,listOf("protocol","type")) }.ifBlank { if(o.has("xray")||o.has("outbounds")) "Xray" else "Server" }
+            val link=pick(o,listOf("share_link","shareLink","link","uri","profile_link","connection_uri","subscription","config_url"))
+            val configObj=o.optJSONObject("config") ?: o.optJSONObject("xray") ?: o.optJSONObject("xray_config")
+            val configText=when { configObj!=null -> configObj.toString(); o.opt("config") is String -> o.optString("config"); else -> pick(o,listOf("config_json","configJson","xray_config_json","raw_config","content","json","configuration")) }
+            val config=configText.takeIf { it.trimStart().startsWith("{") || it.trimStart().startsWith("[") }.orEmpty()
+            if(host.isBlank() && link.isBlank() && config.isBlank()) return
+            val name=pick(o,listOf("server_name","serverName","name","title","remark","label","display_name")).ifBlank { host.ifBlank { "Server \${rows.size+1}" } }
+            val country=pick(o,listOf("server_country","serverCountry","country","location","server_location","serverLocation","region","city"))
+            val desc=pick(o,listOf("description","details","note","status"))
+            val id=pick(o,listOf("id","server_id","serverId","config_id","uuid")).ifBlank { "\${protocol.lowercase()}|\${host.lowercase()}|\${port}|\${name.lowercase()}" }
+            if(ids.add(id)) rows += CatalogServer(id,name,protocol,host.removePrefix("[").removeSuffix("]"),port,country,link,config,desc)
+        }
+        fun walk(value:Any?,depth:Int) {
+            if(depth>6||value==null) return
+            when(value) {
+                is JSONArray -> for(i in 0 until value.length()) walk(value.opt(i),depth+1)
+                is JSONObject -> {
+                    val record=listOf("host","server_host","serverHost","server_ip","ip","address","share_link","config_json","xray_config","protocol").any { value.has(it) } || value.opt("config") is JSONObject
+                    if(record) add(value)
+                    for(k in groups) { val child=value.opt(k); if(child is JSONObject||child is JSONArray) walk(child,depth+1) }
+                }
+            }
+        }
+        walk(root,0)
+        fun meta(keys:List<String>):String {
+            for(k in keys) { val v=root.opt(k); if(v is String&&v.isNotBlank()) return v }
+            val data=root.optJSONObject("data")
+            if(data!=null) for(k in keys) { val v=data.opt(k); if(v is String&&v.isNotBlank()) return v }
+            return ""
+        }
+        return ServerCatalogSnapshot(rows,meta(listOf("config_version","catalog_version","version","versionName")).ifBlank{"unknown"},meta(listOf("updated_at","updatedAt","last_updated_at")).ifBlank{"not supplied"},fetchedAt,meta(listOf("notice","message","status")))
+    }
+
+    fun useServer(context:Context,item:CatalogServer):String {
+        if(item.shareText.isNotBlank()) {
+            val nodes=SubscriptionParser.parse(item.shareText)
+            require(nodes.isNotEmpty()) { "No supported node found in this catalogue entry" }
+            var last=""
+            nodes.forEach { node ->
+                val id=ProfileStore.add(context,"Public catalogue","")
+                val current=ProfileStore.profiles(context).first { it.id==id }
+                ProfileStore.update(context,current.copy(name=node.name.take(64),protocol=node.protocol,server=node.server))
+                LocalStore.writeJson(context,node.toXrayConfig())
+                last=id
+            }
+            if(last.isNotBlank()) ProfileStore.select(context,last)
+            TunnelModeStore.saveMode(context,TunnelModeStore.MODE_XRAY)
+            return "Imported \${nodes.size} server profile(s)."
+        }
+        if(item.configJson.isNotBlank()) {
+            val obj=JSONObject(item.configJson)
+            val json=if(obj.has("outbounds")) obj.toString(2) else JSONObject().put("log",JSONObject().put("loglevel","warning")).put("inbounds",JSONArray()).put("outbounds",JSONArray().put(obj)).toString(2)
+            require(JSONObject(json).optJSONArray("outbounds")?.length()?.let { it>0 }==true) { "No Xray outbound in this entry" }
+            val id=ProfileStore.add(context,"Public catalogue","")
+            val current=ProfileStore.profiles(context).first { it.id==id }
+            ProfileStore.update(context,current.copy(name=item.name.take(64),protocol=item.protocol,server=item.host))
+            LocalStore.writeJson(context,json); TunnelModeStore.saveMode(context,TunnelModeStore.MODE_XRAY)
+            return "Added \${item.name} as an Xray profile."
+        }
+        if(item.host.isNotBlank() && item.port in 1..65535 && item.protocol.contains("ssh",true)) {
+            val id=ProfileStore.add(context,"Public catalogue","")
+            val current=ProfileStore.profiles(context).first { it.id==id }
+            ProfileStore.update(context,current.copy(name=item.name.take(64),protocol="SSH",server=item.host))
+            SshConfigStore.save(context,SshConfigStore.read(context).copy(host=item.host,port=item.port))
+            TunnelModeStore.saveMode(context,TunnelModeStore.MODE_SSH)
+            return "SSH endpoint added. Enter your own username and password in Config before connecting."
+        }
+        error("This record has no importable configuration. Xray entries need their share link or node credentials.")
+    }
+}

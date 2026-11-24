@@ -35,17 +35,38 @@ object ProfileStore {
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun activeProfileId(context: Context): String {
-        ensureDefaults(context)
-        return prefs(context).getString(KEY_ACTIVE, "my-profile") ?: "my-profile"
+        val all = profiles(context)
+        val saved = prefs(context).getString(KEY_ACTIVE, null)
+        val valid = saved?.takeIf { id -> all.any { it.id == id } } ?: all.first().id
+        if (saved != valid) prefs(context).edit().putString(KEY_ACTIVE, valid).apply()
+        return valid
     }
 
     fun profiles(context: Context): List<VpnProfile> {
         ensureDefaults(context)
-        val array = JSONArray(prefs(context).getString(KEY_PROFILES, "[]") ?: "[]")
-        return (0 until array.length()).mapNotNull { i ->
-            val o = array.optJSONObject(i) ?: return@mapNotNull null
-            VpnProfile(o.optString("id"), o.optString("name"), o.optString("carrier"), o.optString("apn"), o.optString("protocol", "VLESS"), o.optString("server"))
-        }
+        val parsed = runCatching {
+            val array = JSONArray(prefs(context).getString(KEY_PROFILES, "[]") ?: "[]")
+            (0 until array.length()).mapNotNull { i ->
+                val o = array.optJSONObject(i) ?: return@mapNotNull null
+                val id = o.optString("id").trim()
+                if (id.isBlank()) return@mapNotNull null
+                VpnProfile(id, o.optString("name", "VPN profile").ifBlank { "VPN profile" },
+                    o.optString("carrier", "Custom"), o.optString("apn"),
+                    o.optString("protocol", "VLESS").ifBlank { "VLESS" }, o.optString("server"))
+            }.distinctBy { it.id }
+        }.getOrDefault(emptyList())
+        if (parsed.isNotEmpty()) return parsed
+        val fallback = listOf(
+            VpnProfile("my-profile", "My VPN", "Custom", "", "VLESS", ""),
+            VpnProfile("dito-default", "DITO", "DITO", "internet.dito.ph", "VLESS", ""),
+            VpnProfile("smart-default", "Smart", "Smart", "internet", "VLESS", ""),
+            VpnProfile("tnt-default", "TNT / Talk 'N Text", "TNT", "internet", "VLESS", ""),
+            VpnProfile("globe-default", "Globe", "Globe", "internet.globe.com.ph", "VLESS", ""),
+            VpnProfile("tm-default", "TM", "TM", "internet.globe.com.ph", "VLESS", "")
+        )
+        save(context, fallback)
+        prefs(context).edit().putString(KEY_ACTIVE, fallback.first().id).apply()
+        return fallback
     }
 
     fun select(context: Context, id: String) {
@@ -99,7 +120,7 @@ fun ProfilesScreen(padding: androidx.compose.foundation.layout.PaddingValues) {
     var profiles by remember { mutableStateOf(ProfileStore.profiles(context)) }
     var activeId by rememberSaveable { mutableStateOf(ProfileStore.activeProfileId(context)) }
     var editingId by rememberSaveable { mutableStateOf(activeId) }
-    val selected = profiles.firstOrNull { it.id == editingId } ?: profiles.first()
+    val selected = profiles.firstOrNull { it.id == editingId } ?: profiles.firstOrNull() ?: VpnProfile("temporary", "My VPN", "Custom", "", "VLESS", "")
     var name by remember(selected.id) { mutableStateOf(selected.name) }
     var apn by remember(selected.id) { mutableStateOf(selected.apn) }
     var protocol by remember(selected.id) { mutableStateOf(selected.protocol) }

@@ -56,6 +56,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,9 +69,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.Locale
 
@@ -164,16 +167,12 @@ private fun KupalVpnApp(
     }
     var adsEnabled by rememberSaveable { mutableStateOf(LocalStore.adsEnabled(context)) }
     var remaining by remember { mutableLongStateOf(adsController.remainingMillis()) }
-    var interstitialInterval by rememberSaveable { mutableIntStateOf(LocalStore.interstitialIntervalMinutes(context)) }
-    var interstitialRemaining by remember { mutableLongStateOf(LocalStore.interstitialRemainingMillis(context, interstitialInterval)) }
-    var interstitialActionMessage by rememberSaveable { mutableStateOf("") }
     var vpnTimeBalance by remember { mutableLongStateOf(LocalStore.remainingVpnMillis(context)) }
     var adActionMessage by rememberSaveable { mutableStateOf("") }
 
-    LaunchedEffect(adsEnabled, interstitialInterval) {
+    LaunchedEffect(adsEnabled) {
         while (true) {
             remaining = adsController.remainingMillis()
-            interstitialRemaining = LocalStore.interstitialRemainingMillis(context, interstitialInterval)
             vpnTimeBalance = LocalStore.remainingVpnMillis(context)
             delay(1_000)
         }
@@ -183,19 +182,18 @@ private fun KupalVpnApp(
         containerColor = Navy,
         bottomBar = {
             NavigationBar(containerColor = Color(0xD90B0B0E)) {
-                listOf("Home", "Profiles", "Config", "Payload", "Free Servers", "Ads").forEach { destination ->
+                listOf("Home", "Profiles", "Config", "Payload", "Free Servers", "Settings").forEach { destination ->
                     val icon = when (destination) {
                         "Home" -> Icons.Default.Home
                         "Profiles" -> Icons.Default.Settings
                         "Config" -> Icons.Default.Code
                         "Payload" -> Icons.Default.Tune
-                        "Free Servers" -> Icons.Default.Settings
                         else -> Icons.Default.Settings
                     }
                     NavigationBarItem(
                         selected = tab == destination,
                         onClick = {
-                            // An interstitial is never auto-shown just because a timer expires.
+                            // Section navigation does not trigger ads.
                             tab = destination
                         },
                         icon = { androidx.compose.material3.Icon(icon, contentDescription = destination) },
@@ -211,48 +209,28 @@ private fun KupalVpnApp(
                 previewConnected = previewConnected,
                 onPreviewConnectionChange = { requestVpnToggle() },
                 vpnStatus = vpnState,
-                vpnTimeMillis = vpnTimeBalance
+                vpnTimeMillis = vpnTimeBalance,
+                adsController = adsController,
+                adsEnabled = adsEnabled,
+                adCooldownMillis = remaining,
+                adActionMessage = adActionMessage,
+                onAdsEnabledChange = {
+                    adsEnabled = it
+                    LocalStore.setAdsEnabled(context, it)
+                },
+                onWatchAd = {
+                    adActionMessage = adsController.tryShowRewardedAd {
+                        LocalStore.grantVpnTime(context)
+                        vpnTimeBalance = LocalStore.remainingVpnMillis(context)
+                        adActionMessage = "Reward earned: +2 hours VPN time"
+                    }
+                }
             )
             "Profiles" -> ProfilesScreen(padding = padding)
             "Config" -> ConfigScreen(padding = padding)
             "Payload" -> PayloadScreen(padding = padding)
-            "Free Servers" -> FreeServersScreen(padding = padding)
-            else -> AdsScreen(
-                padding = padding,
-                adsController = adsController,
-                previewConnected = previewConnected,
-                adsEnabled = adsEnabled,
-                remainingMillis = remaining,
-                vpnTimeMillis = vpnTimeBalance,
-                interstitialRemainingMillis = interstitialRemaining,
-                interstitialIntervalMinutes = interstitialInterval,
-                interstitialActionMessage = interstitialActionMessage,
-                onIntervalChange = { value ->
-                    interstitialInterval = value.coerceIn(15, 120)
-                    LocalStore.setInterstitialIntervalMinutes(context, interstitialInterval)
-                },
-                onShowInterstitial = {
-                    interstitialActionMessage = adsController.tryShowInterstitial(previewConnected, interstitialInterval)
-                },
-                actionMessage = adActionMessage,
-                onEnabledChange = {
-                    adsEnabled = it
-                    LocalStore.setAdsEnabled(context, it)
-                },
-                onShowAd = {
-                    val activity = context as? Activity
-                    adActionMessage = if (activity == null) {
-                        "Could not access the Activity"
-                    } else {
-                        adsController.tryShowRewardedAd {
-                            LocalStore.grantVpnTime(context)
-                            vpnTimeBalance = LocalStore.remainingVpnMillis(context)
-                            adActionMessage = "Reward earned: +2 hours VPN time"
-                        }
-                    }
-                },
-                onPrivacyOptions = onPrivacyOptions
-            )
+            "Free Servers" -> ServerCatalogScreen(padding = padding)
+            else -> SettingsScreen(padding = padding, onPrivacyOptions = onPrivacyOptions)
         }
     }
 }
@@ -276,54 +254,92 @@ private fun HomeScreen(
     previewConnected: Boolean,
     onPreviewConnectionChange: (Boolean) -> Unit,
     vpnStatus: String,
-    vpnTimeMillis: Long
+    vpnTimeMillis: Long,
+    adsController: AdsController,
+    adsEnabled: Boolean,
+    adCooldownMillis: Long,
+    adActionMessage: String,
+    onAdsEnabledChange: (Boolean) -> Unit,
+    onWatchAd: () -> Unit
 ) {
     ScreenColumn(padding) {
-        Text("KUPAL VPN", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("Xray • V2Ray-compatible profile manager", color = Color.LightGray)
-        Card(modifier = Modifier.border(1.dp, GlassBorder, RoundedCornerShape(24.dp)), colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(24.dp)) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(22.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("KUPAL VPN", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.4.sp)
+                Text("Private connection • Your profiles", color = Color.LightGray, fontSize = 12.sp)
+            }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF10271F)),
+                shape = RoundedCornerShape(50)
             ) {
-                Text(vpnStatus.uppercase(), color = if (previewConnected) Green else Color.LightGray)
-                Text("VPN time: ${formatCountdown(vpnTimeMillis)}", color = if (vpnTimeMillis > 0L) Green else Color(0xFFFFD27A), fontWeight = FontWeight.SemiBold)
+                Text("SECURE", modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp), color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth().border(1.dp, GlassBorder, RoundedCornerShape(26.dp)),
+            colors = CardDefaults.cardColors(containerColor = Panel),
+            shape = RoundedCornerShape(26.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(11.dp)
+            ) {
+                Text(
+                    vpnStatus.uppercase(),
+                    color = if (previewConnected) Green else Color.LightGray,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp
+                )
                 Image(
-                    painter = painterResource(
-                        if (previewConnected) R.drawable.connected_status_button
-                        else R.drawable.disconnected_status_button
-                    ),
+                    painter = painterResource(if (previewConnected) R.drawable.connected_status_button else R.drawable.disconnected_status_button),
                     contentDescription = if (previewConnected) "VPN connected. Tap to disconnect." else "VPN disconnected. Tap to connect.",
                     modifier = Modifier
-                        .size(188.dp)
+                        .size(176.dp)
                         .clickable(enabled = previewConnected || vpnTimeMillis > 0L) { onPreviewConnectionChange(!previewConnected) }
                 )
+                Text("VPN TIME  ${formatCountdown(vpnTimeMillis)}", color = if (vpnTimeMillis > 0L) Green else Color(0xFFFFD27A), fontWeight = FontWeight.SemiBold)
                 Button(
                     onClick = { onPreviewConnectionChange(!previewConnected) },
                     enabled = previewConnected || vpnTimeMillis > 0L,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(if (previewConnected) "Disconnect VPN" else if (vpnTimeMillis > 0L) "Connect VPN" else "Watch ads to earn VPN time")
+                    Text(if (previewConnected) "Disconnect" else if (vpnTimeMillis > 0L) "Connect VPN" else "Earn VPN time to connect")
                 }
                 Text(
-                    "Xray/VpnService integration is in source. Verify the native build and server config on-device; traffic and ping metrics are not implemented yet.",
-                    color = Color(0xFFFFD27A),
-                    fontSize = 12.sp
+                    "Choose an SSH or Xray profile and save its server settings before connecting.",
+                    color = Color.LightGray,
+                    fontSize = 11.sp
                 )
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             MetricCard("DOWNLOAD", "0 KB/s", Modifier.weight(1f))
             MetricCard("UPLOAD", "0 KB/s", Modifier.weight(1f))
-            MetricCard("PING", "-- ms", Modifier.weight(1f))
+            MetricCard("LATENCY", "-- ms", Modifier.weight(1f))
         }
-        SectionCard("Included modules") {
-            Text("• Xray JSON editor with syntax validation")
-            Text("• HTTP payload template editor and preview")
-            Text("• Rewarded ads unlock VPN time (2 hours per completed ad)")
-            Text("• UMP privacy consent and privacy options entry point")
+        RewardAccessCard(
+            adsController = adsController,
+            adsEnabled = adsEnabled,
+            remainingMillis = adCooldownMillis,
+            vpnTimeMillis = vpnTimeMillis,
+            actionMessage = adActionMessage,
+            onEnabledChange = onAdsEnabledChange,
+            onShowAd = onWatchAd
+        )
+        SectionCard("Quick status") {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Engines", color = Color.LightGray)
+                Text("SSH • Xray", fontWeight = FontWeight.SemiBold)
+            }
+            Text("Rewarded time is saved on this device and is deducted only while the VPN is connected.", color = Color.LightGray, fontSize = 12.sp)
         }
+        CrashDiagnosticsCard()
     }
 }
 
@@ -350,304 +366,385 @@ fun SectionCard(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun ConfigScreen(padding: PaddingValues) {
     val context = LocalContext.current
-    var profileId by rememberSaveable { mutableStateOf(ProfileStore.activeProfileId(context)) }
-    var jsonText by rememberSaveable(profileId) { mutableStateOf(LocalStore.readJson(context)) }
-    var shareLink by rememberSaveable(profileId) { mutableStateOf("") }
-    var importStatus by rememberSaveable { mutableStateOf("") }
-    var validation by rememberSaveable { mutableStateOf("Draft not validated") }
+    val profileId = ProfileStore.activeProfileId(context)
     var tunnelMode by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readMode(context)) }
-    var httpHost by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpHost(context)) }
-    var httpPort by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpPort(context)) }
-    var httpUser by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpUser(context)) }
-    var httpPassword by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpPassword(context)) }
+    val savedSsh = remember(profileId) { SshConfigStore.read(context) }
+    var sshMode by rememberSaveable(profileId) { mutableStateOf(savedSsh.mode) }
+    var sshHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.host) }
+    var sshPort by rememberSaveable(profileId) { mutableStateOf(savedSsh.port.toString()) }
+    var sshUsername by rememberSaveable(profileId) { mutableStateOf(savedSsh.username) }
+    var sshPassword by remember(profileId) { mutableStateOf(savedSsh.password) }
+    var privateKey by remember(profileId) { mutableStateOf(savedSsh.privateKey) }
+    var privateKeyPassphrase by remember(profileId) { mutableStateOf(savedSsh.privateKeyPassphrase) }
+    var proxyHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.proxyHost) }
+    var proxyPort by rememberSaveable(profileId) { mutableStateOf(savedSsh.proxyPort.toString()) }
+    var sniHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.sniHost) }
+    var udpGatewayPort by rememberSaveable(profileId) { mutableStateOf(savedSsh.udpGatewayPort.toString()) }
+    var saveMessage by rememberSaveable(profileId) { mutableStateOf("") }
+    var jsonText by rememberSaveable(profileId) { mutableStateOf(LocalStore.readJson(context)) }
+    var validation by rememberSaveable(profileId) { mutableStateOf("Configuration not validated") }
+    val privateKeyPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: error("Cannot read the selected key file")
+                require(bytes.isNotEmpty() && bytes.size <= 128 * 1024) { "Private key file must be between 1 byte and 128 KB" }
+                val text = String(bytes, Charsets.UTF_8)
+                require(text.contains("PRIVATE KEY")) { "Selected file does not look like a PEM/OpenSSH private key" }
+                privateKey = text
+                saveMessage = "Private key imported. Tap Save SSH configuration to store it securely."
+            } catch (error: Exception) {
+                saveMessage = error.message ?: "Could not import private key"
+            }
+        }
+    }
 
     ScreenColumn(padding) {
         Text("Connection engine", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Choose connection mode for this profile.", color = Color.LightGray, fontSize = 13.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf(TunnelModeStore.MODE_XRAY, TunnelModeStore.MODE_HTTP, TunnelModeStore.MODE_SSH).forEach { mode ->
-                if (tunnelMode == mode) Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(mode) }
-                else OutlinedButton(onClick = { tunnelMode = mode; TunnelModeStore.saveMode(context, mode) }, modifier = Modifier.weight(1f)) { Text(mode) }
-            }
-        }
-        if (tunnelMode == TunnelModeStore.MODE_HTTP) {
-            Text("Routes through an HTTP proxy using Xray's HTTP outbound. Payload text is not injected.", color = Color.LightGray, fontSize = 12.sp)
-            OutlinedTextField(httpHost, { httpHost = it; TunnelModeStore.saveHttpHost(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy host / IP") }, singleLine = true)
-            OutlinedTextField(httpPort, { httpPort = it; TunnelModeStore.saveHttpPort(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-            OutlinedTextField(httpUser, { httpUser = it; TunnelModeStore.saveHttpUser(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy username (optional)") }, singleLine = true)
-            OutlinedTextField(httpPassword, { httpPassword = it; TunnelModeStore.saveHttpPassword(context, it) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy password (optional)") }, singleLine = true)
-        } else if (tunnelMode == TunnelModeStore.MODE_SSH) {
-            Text("SSH mode is selectable, but the SSH tunnel engine and SSH credentials are not integrated yet.", color = Color(0xFFFFD27A), fontSize = 12.sp)
-        }
-        Text("Xray configuration", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Paste one share link, multi-link subscription text, Base64 subscription, or Xray JSON. Multi-node imports are saved as separate profiles; subscription URLs are not fetched automatically.", color = Color.LightGray, fontSize = 13.sp)
-        OutlinedTextField(
-            value = shareLink,
-            onValueChange = { shareLink = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Share link(s) / subscription text / Xray JSON") },
-            minLines = 2,
-            maxLines = 4,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
-        )
-        Button(onClick = {
-            try {
-                val importedNodes = SubscriptionParser.parse(shareLink)
-                if (importedNodes.size == 1) {
-                    val imported = importedNodes.first()
-                    jsonText = imported.toXrayConfig()
-                    LocalStore.writeJson(context, jsonText)
-                    ProfileStore.profiles(context).firstOrNull { it.id == profileId }?.let { saved ->
-                        ProfileStore.update(context, saved.copy(name = imported.name, protocol = imported.protocol, server = imported.server))
-                    }
+        Text("Choose the tunnel protocol for this profile.", color = Color.LightGray, fontSize = 13.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(TunnelModeStore.MODE_XRAY, TunnelModeStore.MODE_SSH).forEach { mode ->
+                if (tunnelMode == mode) {
+                    Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(mode) }
                 } else {
-                    val createdIds = mutableListOf<String>()
-                    importedNodes.forEach { imported ->
-                        ProfileStore.add(context, "Imported", "")
-                        val created = ProfileStore.profiles(context).lastOrNull()
-                            ?: throw IllegalStateException("Could not create saved profile")
-                        ProfileStore.update(context, created.copy(
-                            name = imported.name.take(64),
-                            carrier = "Imported",
-                            apn = "",
-                            protocol = imported.protocol,
-                            server = imported.server
-                        ))
-                        LocalStore.writeJson(context, imported.toXrayConfig())
-                        createdIds += created.id
-                    }
-                    ProfileStore.select(context, createdIds.first())
-                    profileId = createdIds.first()
-                    jsonText = LocalStore.readJson(context)
+                    OutlinedButton(
+                        onClick = {
+                            tunnelMode = mode
+                            TunnelModeStore.saveMode(context, mode)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text(mode) }
                 }
-                tunnelMode = TunnelModeStore.MODE_XRAY
-                TunnelModeStore.saveMode(context, TunnelModeStore.MODE_XRAY)
-                val warnings = importedNodes.flatMap { it.warnings }.distinct()
-                importStatus = "Imported ${importedNodes.size} node(s) as saved profile(s)" +
-                    if (warnings.isEmpty()) "" else " · " + warnings.joinToString(" ")
-                validation = "Imported profile draft(s). Review JSON before connecting."
-                shareLink = ""
-            } catch (error: Exception) {
-                importStatus = "Import failed: ${error.message ?: "invalid subscription"}"
-                validation = importStatus
             }
-        }, modifier = Modifier.fillMaxWidth(), enabled = shareLink.isNotBlank()) { Text("Import node(s)") }
-        if (importStatus.isNotBlank()) Text(importStatus, color = if (importStatus.startsWith("Imported")) Green else Color(0xFFFFD27A), fontSize = 12.sp)
-        Text("Edit an Xray JSON profile. Validation checks syntax only, not every Xray field.", color = Color.LightGray, fontSize = 13.sp)
-        OutlinedTextField(
-            value = jsonText,
-            onValueChange = {
-                jsonText = it
-                LocalStore.writeJson(context, it)
-                validation = "Unsaved changes"
-            },
-            modifier = Modifier.fillMaxWidth().height(420.dp),
-            label = { Text("Xray JSON") },
-            minLines = 14,
-            maxLines = 30,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = {
-                validation = try {
-                    JSONObject(jsonText)
-                    "Valid JSON syntax"
-                } catch (error: Exception) {
-                    "Invalid JSON: ${error.message ?: "parse error"}"
+        }
+
+        if (tunnelMode == TunnelModeStore.MODE_SSH) {
+            SectionCard("SSH server") {
+                Text("SSH credentials and HTTP transport are stored per profile on this device.", color = Color.LightGray, fontSize = 12.sp)
+                OutlinedTextField(sshHost, { sshHost = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH server / host") }, singleLine = true)
+                OutlinedTextField(sshPort, { sshPort = it.filter(Char::isDigit).take(5) }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(sshUsername, { sshUsername = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH username") }, singleLine = true)
+                OutlinedTextField(sshPassword, { sshPassword = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH password (optional when key is used)") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+            }
+            SectionCard("SSH authentication key") {
+                Text("You can authenticate with a password, a private key, or both. Imported keys are encrypted with Android Keystore before being stored.", color = Color.LightGray, fontSize = 12.sp)
+                Button(onClick = { privateKeyPicker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (privateKey.isBlank()) "Import private key" else "Replace private key")
                 }
-            }) { Text("Validate JSON") }
-            OutlinedButton(onClick = {
-                jsonText = LocalStore.readJson(context)
-                validation = "Draft reloaded"
-            }) { Text("Reload saved") }
+                Text(if (privateKey.isBlank()) "No private key imported" else "Private key imported for this profile", color = if (privateKey.isBlank()) Color.LightGray else Green, fontSize = 12.sp)
+                OutlinedTextField(
+                    privateKeyPassphrase,
+                    { privateKeyPassphrase = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Private key passphrase (optional)") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                if (privateKey.isNotBlank()) {
+                    OutlinedButton(onClick = { privateKey = ""; privateKeyPassphrase = "" }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Remove imported key")
+                    }
+                }
+            }
+            SectionCard("SSH connection type") {
+                val modes = listOf(
+                    SshConfig.MODE_DIRECT to "Direct TCP",
+                    SshConfig.MODE_HTTP_PAYLOAD_DIRECT to "HTTP Payload",
+                    SshConfig.MODE_HTTP_PAYLOAD_PROXY to "HTTP Payload Proxy",
+                    SshConfig.MODE_TLS_PAYLOAD_DIRECT to "TLS + SNI Direct",
+                    SshConfig.MODE_TLS_PAYLOAD_PROXY to "TLS + SNI via Proxy"
+                )
+                modes.forEach { (value, label) ->
+                    val selected = sshMode == value
+                    if (selected) {
+                        Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text(label) }
+                    } else {
+                        OutlinedButton(onClick = { sshMode = value }, modifier = Modifier.fillMaxWidth()) { Text(label) }
+                    }
+                }
+                Text(
+                    "HTTP is a transport/payload option for SSH. It is not a separate VPN engine.",
+                    color = Color.LightGray,
+                    fontSize = 12.sp
+                )
+            }
+            if (sshMode == SshConfig.MODE_HTTP_PAYLOAD_PROXY || sshMode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
+                SectionCard("HTTP proxy") {
+                    OutlinedTextField(proxyHost, { proxyHost = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy host / IP") }, singleLine = true)
+                    OutlinedTextField(proxyPort, { proxyPort = it.filter(Char::isDigit).take(5) }, modifier = Modifier.fillMaxWidth(), label = { Text("Proxy port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                }
+            }
+            if (sshMode == SshConfig.MODE_TLS_PAYLOAD_DIRECT || sshMode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
+                SectionCard("TLS / SNI") {
+                    OutlinedTextField(sniHost, { sniHost = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SNI host name") }, singleLine = true)
+                }
+            }
+            SectionCard("Payload") {
+                Text("Edit the HTTP request in the Payload tab. Supported tokens: [host], [port], [host_port], [crlf].", color = Color.LightGray, fontSize = 12.sp)
+                OutlinedButton(onClick = { saveMessage = "Open the Payload tab to edit the SSH payload." }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Payload editor is in the Payload tab")
+                }
+            }
+            Button(
+                onClick = {
+                    val next = SshConfig(
+                        mode = sshMode,
+                        host = sshHost.trim(),
+                        port = sshPort.toIntOrNull() ?: 0,
+                        username = sshUsername.trim(),
+                        password = sshPassword,
+                        privateKey = privateKey,
+                        privateKeyPassphrase = privateKeyPassphrase,
+                        proxyHost = proxyHost.trim(),
+                        proxyPort = proxyPort.toIntOrNull() ?: 0,
+                        sniHost = sniHost.trim(),
+                        udpGatewayPort = udpGatewayPort.toIntOrNull() ?: 0,
+                        payload = SshConfigStore.read(context).payload
+                    )
+                    try {
+                        next.validate()
+                        SshConfigStore.save(context, next)
+                        TunnelModeStore.saveMode(context, TunnelModeStore.MODE_SSH)
+                        saveMessage = "SSH settings saved for this profile."
+                    } catch (error: Exception) {
+                        saveMessage = error.message ?: "Check the SSH settings."
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save SSH configuration") }
+            if (saveMessage.isNotBlank()) Text(saveMessage, color = if (saveMessage.contains("saved")) Green else Color(0xFFFFD27A), fontSize = 12.sp)
+        } else {
+            Text("Xray configuration", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Edit a VLESS, VMess, Trojan or Shadowsocks Xray JSON profile.", color = Color.LightGray, fontSize = 13.sp)
+            OutlinedTextField(
+                value = jsonText,
+                onValueChange = {
+                    jsonText = it
+                    LocalStore.writeJson(context, it)
+                    validation = "Unsaved changes"
+                },
+                modifier = Modifier.fillMaxWidth().height(420.dp),
+                label = { Text("Xray JSON") },
+                minLines = 14,
+                maxLines = 30,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = {
+                    validation = try {
+                        JSONObject(jsonText)
+                        "Valid JSON syntax"
+                    } catch (error: Exception) {
+                        "Invalid JSON: ${error.message ?: "parse error"}"
+                    }
+                }) { Text("Validate JSON") }
+                OutlinedButton(onClick = {
+                    jsonText = LocalStore.readJson(context)
+                    validation = "Draft reloaded"
+                }) { Text("Reload saved") }
+            }
+            Text(validation, color = if (validation.startsWith("Valid")) Green else Color(0xFFFFD27A))
+            Text("Use authorized server values. Never share your UUID or private keys publicly.", color = Color.LightGray, fontSize = 12.sp)
         }
-        Text(validation, color = if (validation.startsWith("Valid")) Green else Color(0xFFFFD27A))
-        Text("Use your own server values. Never share your UUID, password, or private keys publicly.", color = Color.LightGray, fontSize = 12.sp)
     }
 }
-
-@Composable
-private fun FreeServersScreen(padding: PaddingValues) {
-    val context = LocalContext.current
-    val subscription = "https://radarhub.top/v2ray.txt"
-    var message by rememberSaveable { mutableStateOf("Public subscription source. Subscription parsing and importing are still pending.") }
-
-    ScreenColumn(padding) {
-        Text("Free test servers", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Use public nodes temporarily for protocol and UI testing. Public nodes are run by unknown operators and can be unreliable.", color = Color.LightGray, fontSize = 13.sp)
-        SectionCard("Free V2Ray / Xray-compatible subscription") {
-            Text("Free Nodes Radar", fontWeight = FontWeight.SemiBold)
-            Text("Publicly collected VLESS, VMess, Trojan, and Shadowsocks nodes. The list is refreshed periodically; individual nodes may be offline or unsafe.", color = Color.LightGray, fontSize = 13.sp)
-            Text(subscription, color = Color(0xFF59B9E8), fontSize = 12.sp)
-            Button(onClick = {
-                val clipboard = context.getSystemService(ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(ClipData.newPlainText("Free V2Ray subscription", subscription))
-                message = "Subscription URL copied. Subscription importing is still pending."
-            }, modifier = Modifier.fillMaxWidth()) { Text("Copy subscription URL") }
-            OutlinedButton(onClick = {
-                val clipboard = context.getSystemService(ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(ClipData.newPlainText("Free V2Ray subscription", subscription))
-                message = "Copied for use in a compatible VPN client."
-            }, modifier = Modifier.fillMaxWidth()) { Text("Copy for external VPN client") }
-        }
-        SectionCard("Safety reminder") {
-            Text("Avoid banking, email, or sensitive logins on unknown free servers. HTTPS protects webpage contents, but server operators may still observe connection metadata. These entries are not guaranteed to work in your region.", color = Color(0xFFFFD27A), fontSize = 12.sp)
-        }
-        Text(message, color = Green, fontSize = 12.sp)
-        Text("The subscription remains copy-only in this app. Public nodes are unknown-operated, not privacy-safe, and have not been verified from your region.", color = Color(0xFFFFD27A), fontSize = 12.sp)
-    }
-}
-
 
 @Composable
 private fun PayloadScreen(padding: PaddingValues) {
     val context = LocalContext.current
     val profileId = ProfileStore.activeProfileId(context)
-    var payload by rememberSaveable(profileId) { mutableStateOf(LocalStore.readPayload(context)) }
-    var host by rememberSaveable { mutableStateOf("your-proxy.example.com") }
-    var port by rememberSaveable { mutableStateOf("443") }
-    var result by rememberSaveable { mutableStateOf("Payload template loaded") }
+    val scope = rememberCoroutineScope()
+    var payload by rememberSaveable(profileId) { mutableStateOf(SshConfigStore.read(context).payload) }
+    var host by rememberSaveable(profileId) { mutableStateOf(SshConfigStore.read(context).host) }
+    var port by rememberSaveable(profileId) { mutableStateOf(SshConfigStore.read(context).port.toString()) }
+    var result by rememberSaveable(profileId) { mutableStateOf("SSH payload editor ready") }
+    var updating by remember { mutableStateOf(false) }
+    var templates by remember(profileId) { mutableStateOf(loadRemotePayloadTemplates(context)) }
 
     val preview = payload
-        .replace("[host_port]", "$host:$port")
+        .replace("[host_port]", if (host.contains(':') && !host.startsWith("[")) "[$host]:$port" else "$host:$port")
         .replace("[host]", host)
         .replace("[port]", port)
         .replace("[crlf]", "\r\n")
+        .replace("\\r\\n", "\r\n")
+        .replace("\\n", "\r\n")
 
     ScreenColumn(padding) {
-        Text("Payload & setup editor", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text(
-            "Create and save HTTP request templates. These are separate from Xray transport settings; they are not automatically injected into VLESS/VMess/Trojan.",
-            color = Color.LightGray,
-            fontSize = 13.sp
-        )
-        OutlinedTextField(
-            value = payload,
-            onValueChange = {
-                payload = it
-                LocalStore.writePayload(context, it)
-                result = "Draft updated"
-            },
-            modifier = Modifier.fillMaxWidth().height(230.dp),
-            label = { Text("HTTP payload template") },
-            minLines = 8,
-            maxLines = 14,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
-        )
-        Text("Supported placeholders: [host], [port], [host_port], [crlf]", color = Green, fontSize = 12.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("SSH payload studio", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("HTTP payloads are used by the SSH connection engine. They are not a separate HTTP VPN mode.", color = Color.LightGray, fontSize = 13.sp)
+        SectionCard("GitHub payload catalog") {
+            Text("Download the latest safe templates and DNS presets from the Kupal VPN config repository.", color = Color.LightGray, fontSize = 12.sp)
+            Button(
+                onClick = {
+                    scope.launch {
+                        updating = true
+                        result = "Checking GitHub for configuration updates…"
+                        try {
+                            result = RemoteConfigStore.update(context)
+                            templates = loadRemotePayloadTemplates(context)
+                        } catch (error: Exception) {
+                            result = error.message ?: "Config update failed"
+                        } finally {
+                            updating = false
+                        }
+                    }
+                },
+                enabled = !updating,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (updating) "Updating…" else "Update templates from GitHub") }
+            OutlinedButton(
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(RemoteConfigStore.EDIT_URL)))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Edit payload catalog on GitHub") }
+            if (templates.isEmpty()) {
+                Text("No remote templates cached yet. Tap Update templates from GitHub.", fontSize = 12.sp, color = Color.LightGray)
+            } else {
+                templates.forEach { (name, template) ->
+                    OutlinedButton(
+                        onClick = {
+                            payload = template
+                            SshConfigStore.savePayload(context, template)
+                            result = "Loaded template: $name"
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("＋ $name") }
+                }
+            }
+        }
+        SectionCard("Request payload") {
+            OutlinedTextField(
+                value = payload,
+                onValueChange = {
+                    payload = it
+                    SshConfigStore.savePayload(context, it)
+                    result = "Draft saved for the active profile"
+                },
+                modifier = Modifier.fillMaxWidth().height(220.dp),
+                label = { Text("HTTP / CONNECT payload") },
+                minLines = 7,
+                maxLines = 14,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
+            )
+            Text("Tokens: [host], [port], [host_port], [crlf]", color = Green, fontSize = 12.sp)
+        }
+        SectionCard("Preview target") {
             OutlinedTextField(
                 value = host,
                 onValueChange = { host = it },
-                modifier = Modifier.weight(1f),
-                label = { Text("Host") },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("SSH server host") },
                 singleLine = true
             )
             OutlinedTextField(
                 value = port,
                 onValueChange = { port = it.filter(Char::isDigit).take(5) },
-                modifier = Modifier.width(104.dp),
-                label = { Text("Port") },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("SSH server port") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
+            Text("Preview only. The live SSH endpoint is saved from Config → SSH server.", fontSize = 11.sp, color = Color.LightGray)
         }
-        SectionCard("Preview") {
+        SectionCard("Rendered payload") {
             Text(preview.replace("\r", "\\r").replace("\n", "\\n\n"), fontSize = 11.sp, color = Color(0xFFB8D8EF))
         }
-        Button(onClick = {
-            val clipboard = context.getSystemService(ClipboardManager::class.java)
-            clipboard?.setPrimaryClip(ClipData.newPlainText("Rendered payload", preview))
-            result = "Rendered payload copied"
-        }, modifier = Modifier.fillMaxWidth()) { Text("Copy rendered payload") }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = {
-                LocalStore.writePayload(context, payload)
-                result = "Payload template saved on this device"
-            }) { Text("Save template") }
+                SshConfigStore.savePayload(context, payload)
+                result = "Payload saved to the active SSH profile"
+            }, modifier = Modifier.weight(1f)) { Text("Save") }
             OutlinedButton(onClick = {
-                payload = "CONNECT [host_port] HTTP/1.1[crlf]\nHost: [host][crlf]\nUser-Agent: KupalVPN/1.0[crlf]\nProxy-Connection: keep-alive[crlf][crlf]"
-                LocalStore.writePayload(context, payload)
-                result = "Default template restored"
-            }) { Text("Reset") }
+                payload = SshConfigStore.DEFAULT_PAYLOAD
+                SshConfigStore.savePayload(context, payload)
+                result = "Default HTTP CONNECT template restored"
+            }, modifier = Modifier.weight(1f)) { Text("Reset") }
         }
-        Text(result, color = Green, fontSize = 12.sp)
+        Text(result, color = if (result.contains("failed", true)) Color(0xFFFFD27A) else Green, fontSize = 12.sp)
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private fun loadRemotePayloadTemplates(context: android.content.Context): List<Pair<String, String>> {
+    val array = RemoteConfigStore.read(context).optJSONArray("payloadTemplates") ?: return emptyList()
+    return (0 until array.length()).mapNotNull { index ->
+        val item = array.optJSONObject(index) ?: return@mapNotNull null
+        val name = item.optString("name")
+        val payload = item.optString("payload")
+        if (name.isBlank() || payload.isBlank()) null else name to payload
+    }
+}
+
 @Composable
-private fun AdsScreen(
-    padding: PaddingValues,
+private fun RewardAccessCard(
     adsController: AdsController,
-    previewConnected: Boolean,
     adsEnabled: Boolean,
     remainingMillis: Long,
     vpnTimeMillis: Long,
-    interstitialRemainingMillis: Long,
-    interstitialIntervalMinutes: Int,
-    interstitialActionMessage: String,
-    onIntervalChange: (Int) -> Unit,
-    onShowInterstitial: () -> Unit,
     actionMessage: String,
     onEnabledChange: (Boolean) -> Unit,
-    onShowAd: () -> Unit,
-    onPrivacyOptions: () -> Unit
+    onShowAd: () -> Unit
 ) {
     val adReady = remainingMillis <= 0L
-    ScreenColumn(padding) {
-        Text("Earn VPN time", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Watch a rewarded video to unlock free VPN usage.", color = Color.LightGray, fontSize = 13.sp)
-        SectionCard("Timed interstitial") {
-            val timerDue = interstitialRemainingMillis <= 0L
-            Text("Interval: ${interstitialIntervalMinutes} minutes", fontWeight = FontWeight.SemiBold)
-            Slider(
-                value = interstitialIntervalMinutes.toFloat(),
-                onValueChange = { onIntervalChange(it.toInt().coerceIn(15, 120)) },
-                valueRange = 15f..120f,
-                steps = 6,
-                enabled = adsEnabled
-            )
-            Text("Next eligible: ${if (!adsEnabled) "PAUSED" else if (timerDue) "READY" else formatCountdown(interstitialRemainingMillis)}", color = if (timerDue && adsEnabled) Green else Color.LightGray, fontSize = 12.sp)
-            Text("Timer unlocks a manual ad only. Interstitials are never auto-shown and are blocked while the VPN is connected.", color = Color.LightGray, fontSize = 12.sp)
-            Button(onClick = onShowInterstitial, enabled = adsEnabled && timerDue && !previewConnected, modifier = Modifier.fillMaxWidth()) {
-                Text("Show eligible interstitial")
+    SectionCard("Earn VPN time") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Available access", color = Color.LightGray, fontSize = 12.sp)
+                Text(formatCountdown(vpnTimeMillis), fontSize = 25.sp, fontWeight = FontWeight.Bold, color = if (vpnTimeMillis > 0L) Green else Color.White)
             }
-            if (interstitialActionMessage.isNotBlank()) Text(interstitialActionMessage, color = Green, fontSize = 12.sp)
+            Switch(checked = adsEnabled, onCheckedChange = onEnabledChange)
         }
-        SectionCard("VPN time balance") {
-            Text(formatCountdown(vpnTimeMillis), fontSize = 32.sp, color = if (vpnTimeMillis > 0L) Green else Color.White, fontWeight = FontWeight.Bold)
-            Text("Available VPN time", color = Color.LightGray, fontSize = 12.sp)
-            Text("Each completed rewarded ad adds 2 hours. VPN time is consumed only while connected and disconnects automatically when the time runs out.", fontSize = 12.sp, color = Color.LightGray)
-        }
-        SectionCard("Watch an ad") {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text("Rewarded videos", fontWeight = FontWeight.SemiBold)
-                    Text(if (adsEnabled) "Rewards enabled" else "Rewards paused", fontSize = 12.sp, color = Color.LightGray)
-                }
-                Switch(checked = adsEnabled, onCheckedChange = onEnabledChange)
-            }
-            Divider(color = Color(0xFF33485E))
-            Text("Reward per completed ad", fontWeight = FontWeight.SemiBold)
-            Text("+02:00:00 VPN time", fontSize = 24.sp, color = Green)
-            Text("Next ad: ${if (!adsEnabled) "PAUSED" else if (adReady) "READY" else formatCountdown(remainingMillis)}", fontSize = 13.sp, color = if (adReady && adsEnabled) Green else Color.LightGray)
-            Text("A 10-second cooldown applies after each ad starts. Ads are optional and rewards are granted only after AdMob confirms completion.", fontSize = 12.sp, color = Color.LightGray)
-            Button(onClick = onShowAd, enabled = adsEnabled && adReady, modifier = Modifier.fillMaxWidth()) {
-                Text("Watch ad · Earn 2 hours")
-            }
-            if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
-            Text("Ad status: ${adsController.lastStatus}", fontSize = 11.sp, color = Color.LightGray)
-        }
-        Text("VPN connection: ${if (previewConnected) "CONNECTED" else "DISCONNECTED"}", fontSize = 12.sp, color = Color.LightGray)
-        OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) {
-            Text("Privacy & consent options")
-        }
+        Text("+2 hours for each completed rewarded video", fontWeight = FontWeight.SemiBold, color = Green, fontSize = 13.sp)
         Text(
-            "Debug uses Google test App/interstitial IDs. Release interstitial uses the provided unit ID; rewarded video remains on Google's test unit because no production rewarded ID was provided.",
-            color = Color(0xFFFFD27A),
+            if (!adsEnabled) "Rewarded ads are paused"
+            else if (adReady) "A rewarded video is ready"
+            else "Next video available in ${formatCountdown(remainingMillis)}",
+            color = Color.LightGray,
             fontSize = 12.sp
         )
+        Button(onClick = onShowAd, enabled = adsEnabled && adReady, modifier = Modifier.fillMaxWidth()) {
+            Text("Watch ad · Add 2 hours")
+        }
+        if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
+        Text(adsController.lastStatus, color = Color.LightGray, fontSize = 10.sp)
+        Text("10-second cooldown between ad starts. The reward is added only after AdMob confirms completion.", color = Color.LightGray, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    padding: PaddingValues,
+    onPrivacyOptions: () -> Unit
+) {
+    val context = LocalContext.current
+    ScreenColumn(padding) {
+        Text("Settings", fontSize = 23.sp, fontWeight = FontWeight.Bold)
+        Text("App preferences, privacy and remote configuration.", color = Color.LightGray, fontSize = 13.sp)
+        SectionCard("Privacy") {
+            Text("Manage consent and advertising privacy choices.", color = Color.LightGray, fontSize = 12.sp)
+            OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) {
+                Text("Privacy & consent options")
+            }
+        }
+        SectionCard("Configuration updates") {
+            Text("Payload templates and DNS presets are updated from the public Kupal VPN GitHub catalog. Server credentials are never included in that catalog.", color = Color.LightGray, fontSize = 12.sp)
+            OutlinedButton(
+                onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(RemoteConfigStore.EDIT_URL))
+                    context.startActivity(intent)
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Edit config catalog on GitHub") }
+            Text(RemoteConfigStore.CONFIG_URL, color = Color(0xFF59B9E8), fontSize = 10.sp)
+        }
+        SectionCard("About Kupal VPN") {
+            Text("Premium glass interface • SSH payload • Xray profiles", color = Color.LightGray, fontSize = 12.sp)
+            Text("Never publish your SSH password, private key, or Xray UUID in the public config catalog.", color = Color(0xFFFFD27A), fontSize = 11.sp)
+        }
     }
 }
 

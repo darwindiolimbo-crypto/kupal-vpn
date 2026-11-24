@@ -3,18 +3,19 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:name=".KupalVpnApplication"
         android:allowBackup="false"
+        android:icon="@mipmap/kupal_launcher"
+        android:roundIcon="@mipmap/kupal_launcher"
         android:label="Kupal VPN"
         android:supportsRtl="true"
         android:theme="@style/Theme.KupalVPN">
 
-        <!-- Release uses the supplied App ID; debug overrides with Google's test App ID. -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="${ADMOB_APP_ID}" />
+            android:value="ca-app-pub-9471897591250086~3475722796" />
 
         <service
             android:name=".KupalVpnService"

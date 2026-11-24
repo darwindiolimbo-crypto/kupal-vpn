@@ -12,12 +12,17 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.lang.reflect.Proxy
-import org.json.JSONArray
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 
 class KupalVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var coreClass: Class<*>? = null
+    private var sshTunnel: SshTunnelEngine? = null
+    @Volatile private var stopRequested = false
+    private val starting = AtomicBoolean(false)
+    private val startExecutor = Executors.newSingleThreadExecutor()
     private val vpnTimeHandler = Handler(Looper.getMainLooper())
     private val vpnTimeTick = object : Runnable {
         override fun run() {
@@ -35,26 +40,55 @@ class KupalVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> stopTunnel()
+            ACTION_STOP -> {
+                stopRequested = true
+                stopTunnel()
+            }
             ACTION_START -> {
-                val config = intent.getStringExtra(EXTRA_CONFIG)
-                if (LocalStore.remainingVpnMillis(this) <= 0L) {
-                    setState("error: Watch a rewarded ad to get 2 hours of VPN time")
-                    stopSelf()
-                } else if (config.isNullOrBlank()) {
-                    setState("error: Missing Xray configuration")
-                    stopSelf()
-                } else startTunnel(config)
+                if (tun != null || !starting.compareAndSet(false, true)) return START_NOT_STICKY
+                stopRequested = false
+                try {
+                    startForeground(NOTIFICATION_ID, notification("Preparing secure tunnel"))
+                } catch (error: Throwable) {
+                    Log.e(TAG, "Could not start foreground VPN service", error)
+                    setState("error: ${error.message ?: error.javaClass.simpleName}")
+                    starting.set(false)
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
+                val config = intent.getStringExtra(EXTRA_CONFIG).orEmpty()
+                val mode = runCatching { TunnelModeStore.readMode(this) }.getOrDefault(TunnelModeStore.MODE_XRAY)
+                val problem = when {
+                    LocalStore.remainingVpnMillis(this) <= 0L -> "Watch a rewarded ad to get 2 hours of VPN time"
+                    mode != TunnelModeStore.MODE_SSH && config.isBlank() -> "Missing Xray configuration"
+                    mode !in listOf(TunnelModeStore.MODE_SSH, TunnelModeStore.MODE_XRAY) -> "Unsupported connection mode"
+                    else -> null
+                }
+                if (problem != null) {
+                    setState("error: $problem")
+                    starting.set(false)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(startId)
+                } else {
+                    try {
+                        startExecutor.execute { startTunnel(config, startId) }
+                    } catch (error: Throwable) {
+                        Log.e(TAG, "Could not schedule tunnel startup", error)
+                        setState("error: ${error.message ?: "startup failed"}")
+                        starting.set(false)
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf(startId)
+                    }
+                }
             }
         }
         return START_NOT_STICKY
     }
 
-    private fun startTunnel(configText: String) {
+    private fun startTunnel(configText: String, startId: Int) {
         if (tun != null) return
         setState("connecting")
         try {
-            startForeground(NOTIFICATION_ID, notification("Starting secure tunnel"))
             val builder = Builder()
                 .setSession("Kupal VPN")
                 .setMtu(1500)
@@ -66,44 +100,47 @@ class KupalVpnService : VpnService() {
                 .addRoute("::", 0)
             if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
             tun = builder.establish() ?: error("Android did not create the VPN interface")
+            check(!stopRequested) { "Connection cancelled" }
 
             val mode = TunnelModeStore.readMode(this)
-            if (mode == TunnelModeStore.MODE_SSH) error("SSH tunnel engine is not installed yet. SSH mode settings are saved, but SSH connection support is pending.")
-            val config = JSONObject(configText)
-            if (mode == TunnelModeStore.MODE_HTTP) TunnelModeStore.applyHttpProxy(this, config)
-            val env = config.optJSONObject("env") ?: JSONObject().also { config.put("env", it) }
-            env.put("xray.tun.fd", tun!!.fd.toString())
-            val inbounds = config.optJSONArray("inbounds") ?: org.json.JSONArray().also { config.put("inbounds", it) }
-            val tunInbound = JSONObject()
-                .put("tag", "kupal-tun-in")
-                .put("protocol", "tun")
-                .put("settings", JSONObject()
-                    .put("name", "kupal-tun")
-                    .put("mtu", 1500)
-                    .put("gateway", JSONArray().put("10.77.0.1/30").put("fd77:77::1/126"))
-                    .put("dns", JSONArray().put("1.1.1.1").put("2606:4700:4700::1111"))
-                    .put("autoOutboundsInterface", "auto"))
-            val existingTun = (0 until inbounds.length()).firstOrNull { inbounds.optJSONObject(it)?.optString("protocol") == "tun" }
-            if (existingTun == null) inbounds.put(tunInbound) else inbounds.put(existingTun, tunInbound)
-
-            registerSocketProtection()
-            invokeCore("runXray", JSONObject().put("xrayJson", config.toString()))
+            if (mode == TunnelModeStore.MODE_SSH) {
+                val engine = SshTunnelEngine(this, SshConfigStore.read(this))
+                sshTunnel = engine
+                check(engine.start(tun!!.fd)) { "SSH tunnel engine did not start" }
+            } else {
+                val config = JSONObject(configText)
+                val env = config.optJSONObject("env") ?: JSONObject().also { config.put("env", it) }
+                env.put("xray.tun.fd", tun!!.fd.toString())
+                val inbounds = config.optJSONArray("inbounds") ?: org.json.JSONArray().also { config.put("inbounds", it) }
+                val tunInbound = JSONObject()
+                    .put("tag", "kupal-tun-in")
+                    .put("protocol", "tun")
+                    .put("settings", JSONObject().put("mtu", 1500))
+                val existingTun = (0 until inbounds.length()).firstOrNull { inbounds.optJSONObject(it)?.optString("protocol") == "tun" }
+                if (existingTun == null) inbounds.put(tunInbound) else inbounds.put(existingTun, tunInbound)
+                registerSocketProtection()
+                invokeCore("runXray", JSONObject().put("xrayJson", config.toString()))
+            }
+            check(!stopRequested) { "Connection cancelled" }
             if (!LocalStore.startVpnTime(this)) error("VPN time credit expired before connection")
             setState("connected")
             updateNotification("Kupal VPN connected · rewarded time active")
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
             vpnTimeHandler.postDelayed(vpnTimeTick, 1_000L)
-        } catch (error: Exception) {
-            Log.e(TAG, "Unable to start Xray VPN", error)
-            setState("error: ${error.message ?: error.javaClass.simpleName}")
-            runCatching { invokeCore("stopXray") }.onFailure { Log.w(TAG, "Xray cleanup after start failure", it) }
+        } catch (error: Throwable) {
+            Log.e(TAG, "Unable to start VPN tunnel", error)
+            setState(if (stopRequested) "disconnected" else "error: ${error.message ?: error.javaClass.simpleName}")
             runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
+            runCatching { sshTunnel?.stop() }
+            sshTunnel = null
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
             LocalStore.pauseVpnTime(this)
             tun?.close()
             tun = null
             stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            stopSelf(startId)
+        } finally {
+            starting.set(false)
         }
     }
 
@@ -149,13 +186,16 @@ class KupalVpnService : VpnService() {
     }
 
     private fun stopTunnel() {
+        stopRequested = true
         try {
-            if (tun != null) {
+            if (tun != null && sshTunnel == null && coreClass != null) {
                 invokeCore("stopXray")
             }
         } catch (error: Exception) {
             Log.w(TAG, "Xray stop returned an error", error)
         } finally {
+            runCatching { sshTunnel?.stop() }
+            sshTunnel = null
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
             LocalStore.pauseVpnTime(this)
             try {
@@ -178,7 +218,9 @@ class KupalVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        if (tun != null) stopTunnel()
+        stopRequested = true
+        if (tun != null || sshTunnel != null) stopTunnel()
+        startExecutor.shutdownNow()
         super.onDestroy()
     }
 

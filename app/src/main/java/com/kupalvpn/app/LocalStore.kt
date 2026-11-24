@@ -10,8 +10,6 @@ object LocalStore {
     private const val KEY_AD_LAST_SHOWN = "ads_last_shown"
     private const val KEY_VPN_TIME_BALANCE = "vpn_time_balance_ms"
     private const val KEY_VPN_TIME_STARTED = "vpn_time_started_at"
-    private const val KEY_INTERSTITIAL_LAST_SHOWN = "interstitial_last_shown_at"
-    private const val KEY_INTERSTITIAL_INTERVAL = "interstitial_interval_minutes"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -43,29 +41,6 @@ object LocalStore {
 
     fun markAdShown(context: Context) {
         prefs(context).edit().putLong(KEY_AD_LAST_SHOWN, System.currentTimeMillis()).apply()
-    }
-
-    fun interstitialIntervalMinutes(context: Context): Int =
-        prefs(context).getInt(KEY_INTERSTITIAL_INTERVAL, 30).coerceIn(15, 120)
-
-    fun setInterstitialIntervalMinutes(context: Context, minutes: Int) {
-        prefs(context).edit().putInt(KEY_INTERSTITIAL_INTERVAL, minutes.coerceIn(15, 120)).apply()
-    }
-
-    fun interstitialRemainingMillis(context: Context, intervalMinutes: Int): Long {
-        val p = prefs(context)
-        val interval = intervalMinutes.coerceIn(15, 120)
-        val now = System.currentTimeMillis()
-        var last = p.getLong(KEY_INTERSTITIAL_LAST_SHOWN, 0L)
-        if (last <= 0L) {
-            last = now
-            p.edit().putLong(KEY_INTERSTITIAL_LAST_SHOWN, now).apply()
-        }
-        return (last + interval * 60_000L - now).coerceAtLeast(0L)
-    }
-
-    fun markInterstitialShown(context: Context) {
-        prefs(context).edit().putLong(KEY_INTERSTITIAL_LAST_SHOWN, System.currentTimeMillis()).apply()
     }
 
     fun remainingVpnMillis(context: Context): Long {
