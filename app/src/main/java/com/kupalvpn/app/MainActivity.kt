@@ -307,7 +307,7 @@ private fun HomeScreen(
                     Text(if (previewConnected) "Disconnect VPN" else if (vpnTimeMillis > 0L) "Connect VPN" else "Watch ads to earn VPN time")
                 }
                 Text(
-                    "Powered by Xray-core through Android VpnService. Select a valid server configuration before connecting.",
+                    "Xray/VpnService integration is in source. Verify the native build and server config on-device; traffic and ping metrics are not implemented yet.",
                     color = Color(0xFFFFD27A),
                     fontSize = 12.sp
                 )
@@ -622,7 +622,7 @@ private fun AdsScreen(
             Text("Privacy & consent options")
         }
         Text(
-            "Development uses Google's rewarded-video test ad unit. Replace it with your AdMob rewarded unit ID before release.",
+            "Debug uses Google test App/interstitial IDs. Release interstitial uses the provided unit ID; rewarded video remains on Google's test unit because no production rewarded ID was provided.",
             color = Color(0xFFFFD27A),
             fontSize = 12.sp
         )
