@@ -321,26 +321,26 @@ private fun HomeScreen(
 private fun HomeBannerAd() {
     val activity = LocalContext.current as? Activity ?: return
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    DisposableEffect(activity) {
-        onDispose { }
+    val bannerView = remember(activity) {
+        AdView(activity).apply {
+            adUnitId = HOME_BANNER_AD_UNIT_ID
+            setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
+            adListener = object : AdListener() {
+                override fun onAdFailedToLoad(error: LoadAdError) {
+                    // Keep Home usable if a banner request fails.
+                }
+            }
+            loadAd(com.google.android.gms.ads.AdRequest.Builder().build())
+        }
+    }
+    DisposableEffect(bannerView) {
+        onDispose { bannerView.destroy() }
     }
     AndroidView(
         modifier = Modifier.fillMaxWidth(),
-        factory = { context ->
-            AdView(context).apply {
-                adUnitId = HOME_BANNER_AD_UNIT_ID
-                setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
-                adListener = object : AdListener() {
-                    override fun onAdFailedToLoad(error: LoadAdError) {
-                        // Keep Home usable if a banner request fails.
-                    }
-                }
-                loadAd(com.google.android.gms.ads.AdRequest.Builder().build())
-            }
-        },
+        factory = { bannerView },
         update = { view ->
-            val currentWidth = screenWidthDp
-            view.setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, currentWidth))
+            view.setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
         }
     )
 }
