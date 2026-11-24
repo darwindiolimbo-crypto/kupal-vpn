@@ -43,7 +43,7 @@ class SshTunnelEngine(
     private val running = java.util.concurrent.atomic.AtomicBoolean(false)
     private val worker = Executors.newCachedThreadPool()
     private val clientSockets = ConcurrentHashMap.newKeySet<Socket>()
-    private var session: Session? = null
+    @Volatile private var session: Session? = null
     private var socksServer: ServerSocket? = null
     private var hevConfigFile: File? = null
 
@@ -131,7 +131,9 @@ class SshTunnelEngine(
     }
 
     fun isRunning(): Boolean =
-        running.get() && (runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false))
+        running.get() &&
+            (session?.isConnected == true) &&
+            (runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false))
 
     private fun acceptSocksClients(server: ServerSocket, sshSession: Session) {
         while (running.get() && !server.isClosed) {
