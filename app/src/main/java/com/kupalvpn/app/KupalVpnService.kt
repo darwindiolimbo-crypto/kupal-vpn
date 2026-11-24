@@ -12,6 +12,7 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.lang.reflect.Proxy
+import org.json.JSONArray
 import org.json.JSONObject
 
 class KupalVpnService : VpnService() {
@@ -76,7 +77,12 @@ class KupalVpnService : VpnService() {
             val tunInbound = JSONObject()
                 .put("tag", "kupal-tun-in")
                 .put("protocol", "tun")
-                .put("settings", JSONObject().put("mtu", 1500))
+                .put("settings", JSONObject()
+                    .put("name", "kupal-tun")
+                    .put("mtu", 1500)
+                    .put("gateway", JSONArray().put("10.77.0.1/30").put("fd77:77::1/126"))
+                    .put("dns", JSONArray().put("1.1.1.1").put("2606:4700:4700::1111"))
+                    .put("autoOutboundsInterface", "auto"))
             val existingTun = (0 until inbounds.length()).firstOrNull { inbounds.optJSONObject(it)?.optString("protocol") == "tun" }
             if (existingTun == null) inbounds.put(tunInbound) else inbounds.put(existingTun, tunInbound)
 
@@ -90,6 +96,7 @@ class KupalVpnService : VpnService() {
         } catch (error: Exception) {
             Log.e(TAG, "Unable to start Xray VPN", error)
             setState("error: ${error.message ?: error.javaClass.simpleName}")
+            runCatching { invokeCore("stopXray") }.onFailure { Log.w(TAG, "Xray cleanup after start failure", it) }
             runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
             LocalStore.pauseVpnTime(this)
