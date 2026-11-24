@@ -12,6 +12,7 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.lang.reflect.Proxy
+import java.net.InetAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
@@ -90,6 +91,18 @@ class KupalVpnService : VpnService() {
         if (tun != null) { starting.set(false); return }
         setState("connecting")
         try {
+            // Resolve physical SSH/proxy endpoints while Android is still using the
+            // normal mobile/Wi-Fi network. Once the VPN TUN routes 0.0.0.0/0, these
+            // lookups can otherwise be sent into the tunnel before SOCKS is ready.
+            val mode = TunnelModeStore.readMode(this)
+            val sshConfig = if (mode == TunnelModeStore.MODE_SSH) {
+                SshConfigStore.read(this).also { it.validate() }
+            } else null
+            val sshAddresses = sshConfig?.let { resolveHostAddresses(it.host, "SSH server") } ?: emptyList()
+            val proxyAddresses = sshConfig?.takeIf {
+                it.mode == SshConfig.MODE_HTTP_PAYLOAD_PROXY || it.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY
+            }?.let { resolveHostAddresses(it.proxyHost, "HTTP proxy") } ?: emptyList()
+
             val builder = Builder()
                 .setSession("Kupal VPN")
                 .setMtu(1500)
@@ -103,9 +116,9 @@ class KupalVpnService : VpnService() {
             tun = builder.establish() ?: error("Android did not create the VPN interface")
             check(!stopRequested) { "Connection cancelled" }
 
-            val mode = TunnelModeStore.readMode(this)
             if (mode == TunnelModeStore.MODE_SSH) {
-                val engine = SshTunnelEngine(this, SshConfigStore.read(this))
+                val config = checkNotNull(sshConfig) { "SSH configuration is missing" }
+                val engine = SshTunnelEngine(this, config, sshAddresses, proxyAddresses)
                 sshTunnel = engine
                 check(engine.start(tun!!.fd)) { "SSH tunnel engine did not start" }
             } else {
@@ -146,6 +159,14 @@ class KupalVpnService : VpnService() {
         } finally {
             starting.set(false)
         }
+    }
+
+    private fun resolveHostAddresses(host: String, label: String): List<InetAddress> {
+        val normalized = host.trim().removePrefix("[").removeSuffix("]")
+        require(normalized.isNotBlank()) { "$label host is required" }
+        val addresses = InetAddress.getAllByName(normalized).distinctBy { it.hostAddress }
+        require(addresses.isNotEmpty()) { "Could not resolve $label host: $host" }
+        return addresses
     }
 
     private fun registerSocketProtection() {
