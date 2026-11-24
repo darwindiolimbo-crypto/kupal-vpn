@@ -36,7 +36,9 @@ import javax.net.ssl.SSLSocketFactory
  */
 class SshTunnelEngine(
     private val vpnService: VpnService,
-    private val config: SshConfig
+    private val config: SshConfig,
+    private val sshAddresses: List<InetAddress>,
+    private val proxyAddresses: List<InetAddress>
 ) {
     private val running = java.util.concurrent.atomic.AtomicBoolean(false)
     private val worker = Executors.newCachedThreadPool()
@@ -66,13 +68,14 @@ class SshTunnelEngine(
             sshSession.setConfig("PreferredAuthentications", "publickey,password,keyboard-interactive")
             sshSession.setServerAliveInterval(15_000)
             sshSession.setServerAliveCountMax(3)
-            sshSession.setSocketFactory(ProtectedSshSocketFactory(vpnService, config))
+            sshSession.setSocketFactory(ProtectedSshSocketFactory(vpnService, config, sshAddresses, proxyAddresses))
             sshSession.connect(25_000)
             session = sshSession
 
             val server = ServerSocket()
             server.reuseAddress = true
-            server.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), LOCAL_SOCKS_PORT))
+            server.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0))
+            val localSocksPort = server.localPort
             socksServer = server
             worker.execute { acceptSocksClients(server, sshSession) }
 
@@ -85,7 +88,7 @@ class SshTunnelEngine(
                   icmp: 'off'
                 socks5:
                   address: 127.0.0.1
-                  port: $LOCAL_SOCKS_PORT
+                  port: $localSocksPort
                   udp: 'udp'
             """.trimIndent()
             val configFile = File(vpnService.filesDir, "hev-ssh-tunnel.yml")
@@ -93,6 +96,14 @@ class SshTunnelEngine(
             hevConfigFile = configFile
             check(TProxyService.TProxyStartService(configFile.absolutePath, tunFd)) {
                 "Hev SOCKS tunnel could not start"
+            }
+            // JNI starts HEV on its own pthread. Verify it survives its initial
+            // config/TUN setup instead of treating thread creation alone as readiness.
+            repeat(10) {
+                check(TProxyService.TProxyIsRunning()) {
+                    "Hev tunnel exited during startup; check its TUN/SOCKS configuration"
+                }
+                Thread.sleep(50L)
             }
             return true
         } catch (error: Exception) {
@@ -446,53 +457,71 @@ class SshTunnelEngine(
 
     private class ProtectedSshSocketFactory(
         private val service: VpnService,
-        private val config: SshConfig
+        private val config: SshConfig,
+        private val sshAddresses: List<InetAddress>,
+        private val proxyAddresses: List<InetAddress>
     ) : SocketFactory {
         override fun createSocket(host: String, port: Int): Socket {
             val useHttpProxy = config.mode == SshConfig.MODE_HTTP_PAYLOAD_PROXY ||
                 config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY
-            val connectHost = if (useHttpProxy) config.proxyHost.trim() else host
+            val connectAddresses = if (useHttpProxy) proxyAddresses else sshAddresses
             val connectPort = if (useHttpProxy) config.proxyPort else port
-            val raw = Socket()
-            try {
-                check(service.protect(raw)) { "Android failed to protect the SSH socket" }
-                raw.connect(InetSocketAddress(connectHost, connectPort), 20_000)
-                raw.soTimeout = 15_000
-                var active: Socket = raw
-                if (config.mode == SshConfig.MODE_TLS_PAYLOAD_DIRECT || config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
-                    val sni = config.sniHost.trim().ifBlank { connectHost }
-                    val tlsPort = if (config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) 443 else connectPort
-                    if (config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
-                        establishHttpConnect(raw, sni, tlsPort)
-                    }
-                    val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-                        .createSocket(raw, sni, tlsPort, true) as SSLSocket
-                    val parameters = ssl.sslParameters
-                    if (!sni.matches(Regex("^[0-9.]+$"))) {
-                        parameters.serverNames = listOf(SNIHostName(sni))
-                    }
-                    parameters.endpointIdentificationAlgorithm = "HTTPS"
-                    ssl.sslParameters = parameters
-                    ssl.startHandshake()
-                    ssl.soTimeout = 15_000
-                    active = ssl
-                }
-                if (config.mode != SshConfig.MODE_DIRECT) {
-                    val payload = renderPayload(config.payload, host, port)
-                    active.getOutputStream().apply {
-                        write(payload.toByteArray(Charsets.ISO_8859_1))
-                        flush()
-                    }
-                    val response = readHttpResponseHeader(active.getInputStream())
-                    val status = response.lineSequence().firstOrNull().orEmpty()
-                    val statusCode = status.split(' ').getOrNull(1)?.toIntOrNull() ?: 0
-                    check(statusCode in 200..299) { "Payload proxy rejected the tunnel: $status" }
-                }
-                return active
-            } catch (error: Exception) {
-                runCatching { raw.close() }
-                throw error
+            require(connectAddresses.isNotEmpty()) {
+                if (useHttpProxy) "HTTP proxy host was not resolved before VPN startup"
+                else "SSH host was not resolved before VPN startup"
             }
+            var lastError: Exception? = null
+            for (address in connectAddresses) {
+                val raw = Socket()
+                try {
+                    check(service.protect(raw)) { "Android failed to protect the SSH socket" }
+                    raw.connect(InetSocketAddress(address, connectPort), 20_000)
+                    raw.soTimeout = 15_000
+                    var active: Socket = raw
+                    if (config.mode == SshConfig.MODE_TLS_PAYLOAD_DIRECT || config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
+                        // The SSH target hostname, not the HTTP proxy hostname, is the
+                        // default SNI/certificate identity for TLS payload modes.
+                        val sni = config.sniHost.trim().ifBlank { host }
+                        val tlsPort = if (config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) 443 else connectPort
+                        if (config.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
+                            establishHttpConnect(raw, sni, tlsPort)
+                        }
+                        val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                            .createSocket(raw, sni, tlsPort, true) as SSLSocket
+                        val parameters = ssl.sslParameters
+                        if (!sni.matches(Regex("^[0-9.]+$"))) {
+                            parameters.serverNames = listOf(SNIHostName(sni))
+                        }
+                        parameters.endpointIdentificationAlgorithm = "HTTPS"
+                        ssl.sslParameters = parameters
+                        ssl.startHandshake()
+                        ssl.soTimeout = 15_000
+                        active = ssl
+                    }
+                    if (config.mode != SshConfig.MODE_DIRECT) {
+                        val payload = renderPayload(config.payload, host, port)
+                        active.getOutputStream().apply {
+                            write(payload.toByteArray(Charsets.ISO_8859_1))
+                            flush()
+                        }
+                        val response = readHttpResponseHeader(active.getInputStream())
+                        val status = response.lineSequence().firstOrNull().orEmpty()
+                        val statusCode = status.split(' ').getOrNull(1)?.toIntOrNull() ?: 0
+                        check(statusCode in 200..299) { "Payload proxy rejected the tunnel: $status" }
+                    }
+                    return active
+                } catch (error: Exception) {
+                    lastError = error
+                    runCatching { raw.close() }
+                }
+            }
+            val route = if (useHttpProxy) {
+                " through " + config.proxyHost + ":" + config.proxyPort
+            } else ""
+            throw IllegalStateException(
+                "Could not open the protected SSH transport to " + config.host + ":" + config.port + route,
+                lastError
+            )
         }
 
         override fun getInputStream(socket: Socket): InputStream = socket.getInputStream()
@@ -564,8 +593,7 @@ class SshTunnelEngine(
     }
 
     companion object {
-        private const val LOCAL_SOCKS_PORT = 10808
-        private const val UDPGW_FLAG_KEEPALIVE = 0x01
+                private const val UDPGW_FLAG_KEEPALIVE = 0x01
         private const val UDPGW_FLAG_REBIND = 0x02
         private const val UDPGW_FLAG_DNS = 0x04
         private const val UDPGW_FLAG_IPV6 = 0x08
