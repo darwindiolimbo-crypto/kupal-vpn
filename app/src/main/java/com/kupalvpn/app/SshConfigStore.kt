@@ -101,24 +101,28 @@ object SshConfigStore {
         val p = prefs(context)
         val encrypted = p.getString(key(context, "password_enc"), null)
         if (encrypted != null) {
-            return runCatching { decryptSecret(encrypted) }.getOrElse {
-                throw IllegalStateException("Cannot decrypt the saved SSH password. Re-enter it in SSH settings.", it)
-            }
+            // Android Keystore entries can become invalid after restore or OS migration.
+            // Treat an unreadable credential as missing instead of crashing the UI.
+            return runCatching { decryptSecret(encrypted) }.getOrDefault("")
         }
 
         // Migrate credentials saved by the earlier plaintext implementation.
         val legacy = p.getString(key(context, "password"), null).orEmpty()
         if (legacy.isEmpty()) return ""
-        val migrated = encryptSecret(legacy)
-        p.edit()
-            .putString(key(context, "password_enc"), migrated)
-            .remove(key(context, "password"))
-            .apply()
+        val migrated = runCatching { encryptSecret(legacy) }.getOrNull()
+        if (migrated != null) {
+            p.edit()
+                .putString(key(context, "password_enc"), migrated)
+                .remove(key(context, "password"))
+                .apply()
+        }
         return legacy
     }
 
     private fun readEncryptedSecret(context: Context, field: String): String =
-        prefs(context).getString(key(context, field + "_enc"), null)?.let { decryptSecret(it) } ?: ""
+        prefs(context).getString(key(context, field + "_enc"), null)?.let {
+            runCatching { decryptSecret(it) }.getOrDefault("")
+        } ?: ""
 
     fun read(context: Context): SshConfig {
         val p = prefs(context)
