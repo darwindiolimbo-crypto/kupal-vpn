@@ -164,12 +164,16 @@ private fun KupalVpnApp(
     }
     var adsEnabled by rememberSaveable { mutableStateOf(LocalStore.adsEnabled(context)) }
     var remaining by remember { mutableLongStateOf(adsController.remainingMillis()) }
+    var interstitialInterval by rememberSaveable { mutableIntStateOf(LocalStore.interstitialIntervalMinutes(context)) }
+    var interstitialRemaining by remember { mutableLongStateOf(LocalStore.interstitialRemainingMillis(context, interstitialInterval)) }
+    var interstitialActionMessage by rememberSaveable { mutableStateOf("") }
     var vpnTimeBalance by remember { mutableLongStateOf(LocalStore.remainingVpnMillis(context)) }
     var adActionMessage by rememberSaveable { mutableStateOf("") }
 
-    LaunchedEffect(adsEnabled) {
+    LaunchedEffect(adsEnabled, interstitialInterval) {
         while (true) {
             remaining = adsController.remainingMillis()
+            interstitialRemaining = LocalStore.interstitialRemainingMillis(context, interstitialInterval)
             vpnTimeBalance = LocalStore.remainingVpnMillis(context)
             delay(1_000)
         }
@@ -220,6 +224,16 @@ private fun KupalVpnApp(
                 adsEnabled = adsEnabled,
                 remainingMillis = remaining,
                 vpnTimeMillis = vpnTimeBalance,
+                interstitialRemainingMillis = interstitialRemaining,
+                interstitialIntervalMinutes = interstitialInterval,
+                interstitialActionMessage = interstitialActionMessage,
+                onIntervalChange = { value ->
+                    interstitialInterval = value.coerceIn(15, 120)
+                    LocalStore.setInterstitialIntervalMinutes(context, interstitialInterval)
+                },
+                onShowInterstitial = {
+                    interstitialActionMessage = adsController.tryShowInterstitial(previewConnected, interstitialInterval)
+                },
                 actionMessage = adActionMessage,
                 onEnabledChange = {
                     adsEnabled = it
@@ -338,6 +352,8 @@ private fun ConfigScreen(padding: PaddingValues) {
     val context = LocalContext.current
     val profileId = ProfileStore.activeProfileId(context)
     var jsonText by rememberSaveable(profileId) { mutableStateOf(LocalStore.readJson(context)) }
+    var shareLink by rememberSaveable(profileId) { mutableStateOf("") }
+    var importStatus by rememberSaveable(profileId) { mutableStateOf("") }
     var validation by rememberSaveable { mutableStateOf("Draft not validated") }
     var tunnelMode by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readMode(context)) }
     var httpHost by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readHttpHost(context)) }
@@ -364,7 +380,38 @@ private fun ConfigScreen(padding: PaddingValues) {
             Text("SSH mode is selectable, but the SSH tunnel engine and SSH credentials are not integrated yet.", color = Color(0xFFFFD27A), fontSize = 12.sp)
         }
         Text("Xray configuration", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Edit an Xray JSON profile. Validation checks JSON syntax only, not every Xray field.", color = Color.LightGray, fontSize = 13.sp)
+        Text("Paste a VLESS, VMess, Trojan, or Shadowsocks link to import an outbound JSON draft.", color = Color.LightGray, fontSize = 13.sp)
+        OutlinedTextField(
+            value = shareLink,
+            onValueChange = { shareLink = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Share link") },
+            minLines = 2,
+            maxLines = 4,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
+        )
+        Button(onClick = {
+            try {
+                val imported = ProfileLinkParser.parse(shareLink)
+                jsonText = imported.toXrayConfig()
+                LocalStore.writeJson(context, jsonText)
+                ProfileStore.profiles(context).firstOrNull { it.id == profileId }?.let { saved ->
+                    ProfileStore.update(context, saved.copy(name = imported.name, protocol = imported.protocol, server = imported.server))
+                }
+                if (tunnelMode != TunnelModeStore.MODE_XRAY) {
+                    tunnelMode = TunnelModeStore.MODE_XRAY
+                    TunnelModeStore.saveMode(context, tunnelMode)
+                }
+                importStatus = if (imported.warnings.isEmpty()) "Imported \${imported.protocol} · \${imported.server}:\${imported.port}"
+                    else imported.warnings.joinToString(" ")
+                validation = "Imported outbound draft. Check the JSON before connecting."
+            } catch (error: Exception) {
+                importStatus = "Import failed: \${error.message ?: "invalid share link"}"
+                validation = importStatus
+            }
+        }, modifier = Modifier.fillMaxWidth(), enabled = shareLink.isNotBlank()) { Text("Import share link") }
+        if (importStatus.isNotBlank()) Text(importStatus, color = if (importStatus.startsWith("Imported")) Green else Color(0xFFFFD27A), fontSize = 12.sp)
+        Text("Edit an Xray JSON profile. Validation checks syntax only, not every Xray field.", color = Color.LightGray, fontSize = 13.sp)
         OutlinedTextField(
             value = jsonText,
             onValueChange = {
@@ -401,7 +448,7 @@ private fun ConfigScreen(padding: PaddingValues) {
 private fun FreeServersScreen(padding: PaddingValues) {
     val context = LocalContext.current
     val subscription = "https://radarhub.top/v2ray.txt"
-    var message by rememberSaveable { mutableStateOf("Public subscription source. The app currently cannot import/connect until the Xray engine is integrated.") }
+    var message by rememberSaveable { mutableStateOf("Public subscription source. Subscription parsing and importing are still pending.") }
 
     ScreenColumn(padding) {
         Text("Free test servers", fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -413,7 +460,7 @@ private fun FreeServersScreen(padding: PaddingValues) {
             Button(onClick = {
                 val clipboard = context.getSystemService(ClipboardManager::class.java)
                 clipboard?.setPrimaryClip(ClipData.newPlainText("Free V2Ray subscription", subscription))
-                message = "Subscription URL copied. Subscription importing is not implemented yet."
+                message = "Subscription URL copied. Subscription importing is still pending."
             }, modifier = Modifier.fillMaxWidth()) { Text("Copy subscription URL") }
             OutlinedButton(onClick = {
                 val clipboard = context.getSystemService(ClipboardManager::class.java)
@@ -425,7 +472,7 @@ private fun FreeServersScreen(padding: PaddingValues) {
             Text("Avoid banking, email, or sensitive logins on unknown free servers. HTTPS protects webpage contents, but server operators may still observe connection metadata. These entries are not guaranteed to work in your region.", color = Color(0xFFFFD27A), fontSize = 12.sp)
         }
         Text(message, color = Green, fontSize = 12.sp)
-        Text("The free server subscription is a source link, not a live VPN connection inside Kupal VPN yet.", color = Color.LightGray, fontSize = 12.sp)
+        Text("The subscription remains copy-only in this app. Public nodes are unknown-operated, not privacy-safe, and have not been verified from your region.", color = Color(0xFFFFD27A), fontSize = 12.sp)
     }
 }
 
@@ -486,6 +533,11 @@ private fun PayloadScreen(padding: PaddingValues) {
         SectionCard("Preview") {
             Text(preview.replace("\r", "\\r").replace("\n", "\\n\n"), fontSize = 11.sp, color = Color(0xFFB8D8EF))
         }
+        Button(onClick = {
+            val clipboard = context.getSystemService(ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(ClipData.newPlainText("Rendered payload", preview))
+            result = "Rendered payload copied"
+        }, modifier = Modifier.fillMaxWidth()) { Text("Copy rendered payload") }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = {
                 LocalStore.writePayload(context, payload)
@@ -510,6 +562,11 @@ private fun AdsScreen(
     adsEnabled: Boolean,
     remainingMillis: Long,
     vpnTimeMillis: Long,
+    interstitialRemainingMillis: Long,
+    interstitialIntervalMinutes: Int,
+    interstitialActionMessage: String,
+    onIntervalChange: (Int) -> Unit,
+    onShowInterstitial: () -> Unit,
     actionMessage: String,
     onEnabledChange: (Boolean) -> Unit,
     onShowAd: () -> Unit,
@@ -519,6 +576,23 @@ private fun AdsScreen(
     ScreenColumn(padding) {
         Text("Earn VPN time", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text("Watch a rewarded video to unlock free VPN usage.", color = Color.LightGray, fontSize = 13.sp)
+        SectionCard("Timed interstitial") {
+            val timerDue = interstitialRemainingMillis <= 0L
+            Text("Interval: \${interstitialIntervalMinutes} minutes", fontWeight = FontWeight.SemiBold)
+            Slider(
+                value = interstitialIntervalMinutes.toFloat(),
+                onValueChange = { onIntervalChange(it.toInt().coerceIn(15, 120)) },
+                valueRange = 15f..120f,
+                steps = 6,
+                enabled = adsEnabled
+            )
+            Text("Next eligible: \${if (!adsEnabled) "PAUSED" else if (timerDue) "READY" else formatCountdown(interstitialRemainingMillis)}", color = if (timerDue && adsEnabled) Green else Color.LightGray, fontSize = 12.sp)
+            Text("Timer unlocks a manual ad only. Interstitials are never auto-shown and are blocked while the VPN is connected.", color = Color.LightGray, fontSize = 12.sp)
+            Button(onClick = onShowInterstitial, enabled = adsEnabled && timerDue && !previewConnected, modifier = Modifier.fillMaxWidth()) {
+                Text("Show eligible interstitial")
+            }
+            if (interstitialActionMessage.isNotBlank()) Text(interstitialActionMessage, color = Green, fontSize = 12.sp)
+        }
         SectionCard("VPN time balance") {
             Text(formatCountdown(vpnTimeMillis), fontSize = 32.sp, color = if (vpnTimeMillis > 0L) Green else Color.White, fontWeight = FontWeight.Bold)
             Text("Available VPN time", color = Color.LightGray, fontSize = 12.sp)
