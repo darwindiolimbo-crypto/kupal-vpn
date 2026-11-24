@@ -33,7 +33,7 @@ fun ServerCatalogScreen(padding: androidx.compose.foundation.layout.PaddingValue
     var loading by remember { mutableStateOf(false) }; var search by rememberSaveable { mutableStateOf("") }; var status by rememberSaveable { mutableStateOf("") }
     suspend fun refresh() {
         loading=true; status="Updating public server catalogue…"
-        try { catalog=ServerCatalogStore.refresh(context); status=if(catalog.items.isEmpty()) "No importable server entries were returned." else "Loaded \${catalog.items.size} servers." }
+        try { catalog=ServerCatalogStore.refresh(context); status=if(catalog.items.isEmpty()) "No importable server entries were returned." else "Loaded ${catalog.items.size} servers." }
         catch(e:Exception) { status=e.message ?: "Server update failed"; catalog=ServerCatalogStore.read(context) }
         finally { loading=false }
     }
@@ -45,8 +45,8 @@ fun ServerCatalogScreen(padding: androidx.compose.foundation.layout.PaddingValue
         SectionCard("Server list update") {
             Text("JuanScript / MobiVPN catalogue",fontWeight=FontWeight.SemiBold)
             Text(ServerCatalogStore.CATALOG_URL,color=Color(0xFF59B9E8),fontSize=10.sp)
-            Text("Version: \${catalog.version} · Updated: \${catalog.updatedAt}",color=Color.LightGray,fontSize=11.sp)
-            if(catalog.fetchedAt>0L) Text("Fetched: \${DateFormat.getDateTimeInstance().format(Date(catalog.fetchedAt))}",color=Color.LightGray,fontSize=11.sp)
+            Text("Version: ${catalog.version} · Updated: ${catalog.updatedAt}",color=Color.LightGray,fontSize=11.sp)
+            if(catalog.fetchedAt>0L) Text("Fetched: ${DateFormat.getDateTimeInstance().format(Date(catalog.fetchedAt))}",color=Color.LightGray,fontSize=11.sp)
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.fillMaxWidth()) {
                 Button(onClick={scope.launch { refresh() }},enabled=!loading,modifier=Modifier.weight(1f)) { Text(if(loading) "Updating…" else "Update server list") }
                 OutlinedButton(onClick={
@@ -58,17 +58,17 @@ fun ServerCatalogScreen(padding: androidx.compose.foundation.layout.PaddingValue
             if(status.isNotBlank()) Text(status,color=if(status.contains("failed",true)) Color(0xFFFFD27A) else Color(0xFF66F0B5),fontSize=12.sp)
         }
         OutlinedTextField(search,{search=it},modifier=Modifier.fillMaxWidth(),label={Text("Search server, country or protocol")},singleLine=true)
-        Text("\${shown.size} server(s)",color=Color.LightGray,fontSize=12.sp)
+        Text("${shown.size} server(s)",color=Color.LightGray,fontSize=12.sp)
         if(shown.isEmpty()) SectionCard("No servers available") {
             Text(if(catalog.items.isEmpty()) "No list is cached. Tap Update server list. If the public endpoint is offline or blocks access, the app will preserve the last successful list." else "No matching servers.",color=Color.LightGray,fontSize=12.sp)
         } else shown.forEach { item ->
-            Card(modifier=Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Panel),shape=RoundedCornerShape(16.dp)) {
+            Card(modifier=Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color(0xB0121216)),shape=RoundedCornerShape(16.dp)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                     Text(item.name,fontWeight=FontWeight.Bold,fontSize=16.sp)
-                    Text(listOf(item.protocol,item.country,if(item.host.isBlank()) "" else if(item.port>0) "\${item.host}:\${item.port}" else item.host).filter{it.isNotBlank()}.joinToString(" • "),color=Color.LightGray,fontSize=11.sp)
+                    Text(listOf(item.protocol,item.country,if(item.host.isBlank()) "" else if(item.port>0) "${item.host}:${item.port}" else item.host).filter{it.isNotBlank()}.joinToString(" • "),color=Color.LightGray,fontSize=11.sp)
                     if(item.description.isNotBlank()) Text(item.description,color=Color.LightGray,fontSize=12.sp)
                     val canAdd=item.shareText.isNotBlank()||item.configJson.isNotBlank()||(item.protocol.contains("ssh",true)&&item.host.isNotBlank()&&item.port in 1..65535)
-                    OutlinedButton(onClick={status=runCatching{ServerCatalogStore.useServer(context,item)}.getOrElse{"Could not add server: \${it.message ?: "unsupported entry"}"}},enabled=canAdd,modifier=Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick={status=runCatching{ServerCatalogStore.useServer(context,item)}.getOrElse{"Could not add server: ${it.message ?: "unsupported entry"}"}},enabled=canAdd,modifier=Modifier.fillMaxWidth()) {
                         Text(if(item.protocol.contains("ssh",true)&&item.shareText.isBlank()&&item.configJson.isBlank()) "Use SSH endpoint" else "Add to profiles")
                     }
                     if(!canAdd) Text("No complete profile or server credentials were supplied for this entry.",color=Color(0xFFFFD27A),fontSize=11.sp)
