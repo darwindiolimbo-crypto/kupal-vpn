@@ -1,66 +1,49 @@
-# Kupal VPN — Android starter project
+# Kupal VPN — Android
 
-This is the first Android Studio source package for the Kupal VPN app concept. It includes the payload/configuration editing screens and the timed Google AdMob integration requested for the next iteration.
+Kupal VPN is a native Kotlin/Jetpack Compose Android app with profile management, Xray JSON editing, HTTP payload-template preview, free-server source links, UMP consent, and AdMob timer controls.
 
-## Included now
+## Features in source
 
-- Jetpack Compose dark UI with Home, Config, Payload, and Ads tabs.
-- Local Xray JSON draft editor with JSON syntax validation.
-- HTTP payload template editor with `[host]`, `[port]`, `[host_port]`, and `[crlf]` placeholders and a rendered preview.
-- Google Mobile Ads SDK (25.5.0) integration using Google's official test App ID and test interstitial unit.
-- Google UMP consent request flow and privacy-options entry point.
-- Configurable 15–120 minute ad timer. The timer makes an ad eligible; the sample only shows an interstitial when the user presses the test button, the timer has elapsed, and the VPN preview state is disconnected.
-- Local persistence of the JSON draft, payload, and ad timer settings.
-- Free Servers tab with a copyable public V2Ray subscription URL for use in external compatible clients (not yet imported into this app).
+- Compose dark UI with Home, Profiles, Config, Payload, Free Servers and Ads screens.
+- Multiple saved profiles with protocol/server metadata and profile-specific config drafts.
+- Share-link importer for **VLESS, VMess (Base64 JSON), Trojan, and SIP002/legacy Shadowsocks**. Common TCP, WebSocket, gRPC, HTTP/2, XHTTP, KCP, QUIC, TLS and REALITY settings are mapped into an Xray outbound draft. Unsupported transports are rejected; Shadowsocks plugin parameters are warned about and not imported.
+- Xray JSON config editor with syntax validation.
+- HTTP payload/setup editor with `[host]`, `[port]`, `[host_port]`, `[crlf]` placeholders and preview/copy. It is not a raw Xray transport injection feature.
+- Xray integration path in `KupalVpnService`: Android VPN permission/service lifecycle, TUN creation, FD handoff, libXray run/stop, DNS and socket-protection callbacks. HTTP mode has a separate outbound/routing setup; SSH mode is saved but the SSH engine is not implemented.
+- Free Test Servers source link: Free Nodes Radar V2Ray subscription `https://radarhub.top/v2ray.txt`. Subscription fetching/parsing/import remains pending. Public nodes are operated by unknown parties, may be malicious or offline, and are not privacy-safe. They have **not** been verified from your region. Do not use for banking, email, or sensitive traffic.
+- UMP consent information is refreshed at launch, consent forms are shown when required, ad requests are gated by `canRequestAds()`, and a privacy-options entry point is provided.
+- Timed interstitial controls (15–120 min, default 30) only unlock a manual show action; interstitials are never auto-shown and are blocked while VPN is connected.
+- Rewarded video remains a **Google test unit** and grants temporary VPN time in its earned-reward callback. A production rewarded unit ID was not provided and is not invented.
 
-## Important: current build status
+## AdMob configuration
 
-This package is a **UI and feature-integration starter**, not yet a working VPN client. The Xray-core native library, Android `VpnService` packet loop, TUN file-descriptor handoff, traffic routing, and live connection statistics have not yet been integrated. The Home screen deliberately labels its Connect button as a preview so it does not claim to establish a real tunnel.
+Release configuration is wired with the provided IDs:
 
-The payload editor stores and previews an HTTP request template. It does not inject arbitrary payload text into VLESS, VMess, Trojan, or Xray transports. Xray transport settings must be represented in the Xray JSON profile or a protocol-specific adapter.
+- App ID: `ca-app-pub-9471897591250086~3475722796`
+- Interstitial unit: `ca-app-pub-9471897591250086/2836147281`
 
-## Open in Android Studio
+Debug builds override these with Google test IDs (test App ID and interstitial unit) to avoid serving live ads during development. The rewarded video still uses Google's official rewarded test unit. These are AdMob App/Ad unit IDs, not the AdSense publisher ID. Set up UMP consent messages in AdMob before publishing and never click production ads during tests.
 
-1. Extract this ZIP.
-2. Open the `KupalVPN-Android` folder in Android Studio.
-3. Use JDK 17 and install Android SDK Platform 35.
-4. Let Gradle sync download the Android, Compose, Google Mobile Ads, and UMP dependencies.
-5. Run the `app` configuration on an Android device or emulator (Android 8.0/API 26 or newer).
+## Build
 
-The project uses Android Gradle Plugin 8.7.3 and Kotlin 2.0.21. A Gradle wrapper is not included in this archive. For a Termux-only build, install/configure JDK 17, Gradle, Android SDK Platform 35 and matching Build Tools, then set `ANDROID_HOME`/`ANDROID_SDK_ROOT` before running `gradle :app:assembleDebug`. These SDK tools are not bundled here, and this Termux build path has not yet been tested in this environment. Android Studio is the easiest alternative when available.
+The GitHub Actions workflow builds the pinned upstream XTLS/libXray Android AAR, then assembles the debug APK. It also runs parser JVM tests.
 
-## AdMob setup before publishing
+Local build requires JDK 17, Go, Python 3, Git, Android SDK Platform 35, Android NDK and Gradle 8.13. The native AAR is not committed.
 
-Development currently uses Google's sample IDs:
+```bash
+./scripts/build-libxray-android.sh
+gradle :app:testDebugUnitTest
+gradle :app:assembleDebug
+```
 
-- Sample AdMob App ID: `ca-app-pub-3940256099942544~3347511713`
-- Sample Android interstitial ad unit: `ca-app-pub-3940256099942544/1033173712`
+The native build script pins libXray `v26.11.9`. Native AAR class/API binding, TUN behavior, DNS/socket protection, routing, and disconnect lifecycle still require a successful Android build and device test. Do not treat the VPN as production-ready until those tests pass.
 
-Before release:
+## Links
 
-1. Register Kupal VPN in your AdMob account.
-2. Replace the sample App ID in `app/src/main/AndroidManifest.xml`.
-3. Replace `TEST_INTERSTITIAL_AD_UNIT_ID` in `AdsController.kt` with your own interstitial ad unit ID.
-4. Configure the required privacy/consent messages in AdMob's Privacy & messaging area and verify the UMP flow in all target regions.
-5. Test with Google's test IDs until the app is ready for production. Never click live ads during testing.
-
-The sample timer defaults to 30 minutes, with a user-configurable interval from 15 to 120 minutes. Interstitials should be shown at natural app transitions and not used to block VPN connection controls. This implementation refuses to show while the VPN preview reports connected.
-
-## Next engineering stage
-
-To make it a real VPN app, the next implementation stage is to integrate Xray-core as an Android native library, implement `VpnService` lifecycle and TUN FD handoff, add config import (VLESS/VMess/Trojan/SS links and QR), add actual tunnel status/traffic counters, then build and test the APK on the target phones.
-
-## Official references
-
-- Google Mobile Ads Android setup: https://developers.google.com/admob/android/quick-start
-- Google test ads: https://developers.google.com/admob/android/test-ads
-- Google UMP consent SDK: https://developers.google.com/admob/android/privacy
-- Android VPN guide: https://developer.android.com/develop/connectivity/vpn
-- Xray-core TUN Android notes: https://github.com/XTLS/Xray-core/tree/main/proxy/tun
-
-
-## Build on GitHub Actions
-
-A GitHub Actions workflow is configured at `.github/workflows/android-build.yml`. It runs on pushes to `main`, pull requests targeting `main`, or manual dispatch from the Actions tab. It builds a debug APK with JDK 17 and Gradle 8.9, then uploads the APK as the `KupalVPN-debug` artifact (available for 14 days).
-
-
+- [Android VPN Service docs](https://developer.android.com/develop/connectivity/vpn)
+- [Xray TUN inbound](https://xtls.github.io/en/config/inbounds/tun.html)
+- [libXray v26.11.9](https://github.com/XTLS/libXray/releases/tag/v26.11.9)
+- [Google Mobile Ads Android](https://developers.google.com/admob/android/quick-start)
+- [Google UMP](https://developers.google.com/admob/android/privacy)
+- [Free Nodes Radar subscription](https://radarhub.top/v2ray.txt)
+- [NodesRadar](https://nodesradar.com/)
