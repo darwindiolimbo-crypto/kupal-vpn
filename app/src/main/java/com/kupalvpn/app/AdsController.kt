@@ -26,8 +26,14 @@ class AdsController(private val activity: Activity) {
     @Volatile private var consentRequestInFlight = false
     @Volatile private var rewardedLoading = false
     @Volatile private var rewardAdShowing = false
+    private var rewardedRetryDelayMs = 15_000L
+    private var consentRetryDelayMs = 30_000L
+    private val rewardedRetry = Runnable { loadRewardedAd() }
+    private val consentRetry = Runnable { requestConsentAndInitialize() }
 
-    var lastStatus: String by mutableStateOf("Waiting for privacy consent")
+    var lastStatus: String by mutableStateOf("Checking privacy consent…")
+        private set
+    var bannerStatus: String by mutableStateOf("Banner not requested")
         private set
     var adsReady: Boolean by mutableStateOf(false)
         private set
@@ -47,6 +53,28 @@ class AdsController(private val activity: Activity) {
         else mainHandler.post(action)
     }
 
+    private fun scheduleConsentRetry() {
+        if (activity.isFinishing || activity.isDestroyed) return
+        mainHandler.removeCallbacks(consentRetry)
+        mainHandler.postDelayed(consentRetry, consentRetryDelayMs)
+        consentRetryDelayMs = (consentRetryDelayMs * 2L).coerceAtMost(5L * 60L * 1000L)
+    }
+
+    private fun scheduleRewardedRetry() {
+        if (activity.isFinishing || activity.isDestroyed) return
+        mainHandler.removeCallbacks(rewardedRetry)
+        mainHandler.postDelayed(rewardedRetry, rewardedRetryDelayMs)
+        rewardedRetryDelayMs = (rewardedRetryDelayMs * 2L).coerceAtMost(5L * 60L * 1000L)
+    }
+
+    fun reportBannerLoaded() {
+        onMain { bannerStatus = "Banner ad loaded" }
+    }
+
+    fun reportBannerFailed(error: LoadAdError) {
+        onMain { bannerStatus = "Banner unavailable: ${error.message} (code ${error.code})" }
+    }
+
     fun requestConsentAndInitialize() {
         if (activity.isFinishing || activity.isDestroyed) return
         onMain {
@@ -61,33 +89,46 @@ class AdsController(private val activity: Activity) {
                     {
                         onMain {
                             consentRequestInFlight = false
+                            // A previous valid consent choice can already permit ads.
+                            // Start the SDK now; a newly required form is still shown below.
+                            if (consentInformation.canRequestAds()) initializeAds()
                             try {
                                 UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { formError ->
                                     onMain {
                                         if (formError != null) {
                                             lastStatus = "Consent form: ${formError.message}"
                                         }
-                                        if (consentInformation.canRequestAds()) initializeAds()
-                                        else lastStatus = "Ads unavailable: consent does not permit requests"
+                                        if (consentInformation.canRequestAds()) {
+                                            mainHandler.removeCallbacks(consentRetry)
+                                            consentRetryDelayMs = 30_000L
+                                            if (!initialized) initializeAds()
+                                            else if (formError == null) lastStatus = "Privacy checked; ads are permitted"
+                                        } else {
+                                            lastStatus = "Consent is required before ads can be requested"
+                                            scheduleConsentRetry()
+                                        }
                                     }
                                 }
                             } catch (error: Throwable) {
                                 lastStatus = "Consent form unavailable: ${error.message ?: error.javaClass.simpleName}"
                                 if (consentInformation.canRequestAds()) initializeAds()
+                                else scheduleConsentRetry()
                             }
                         }
                     },
                     { requestError ->
                         onMain {
                             consentRequestInFlight = false
-                            lastStatus = "Consent update: ${requestError.message}"
+                            lastStatus = "Consent update failed: ${requestError.message}"
                             if (consentInformation.canRequestAds()) initializeAds()
+                            else scheduleConsentRetry()
                         }
                     }
                 )
             } catch (error: Throwable) {
                 consentRequestInFlight = false
                 lastStatus = "Privacy consent unavailable: ${error.message ?: error.javaClass.simpleName}"
+                scheduleConsentRetry()
             }
         }
     }
@@ -95,7 +136,8 @@ class AdsController(private val activity: Activity) {
     private fun initializeAds() {
         if (initializeRequested || activity.isFinishing || activity.isDestroyed) return
         initializeRequested = true
-        lastStatus = "Initializing AdMob…"
+        mainHandler.removeCallbacks(consentRetry)
+        lastStatus = "Consent checked; initializing AdMob…"
         try {
             Thread({
                 try {
@@ -129,6 +171,7 @@ class AdsController(private val activity: Activity) {
         if (!initialized || rewardedAd != null || rewardedLoading || activity.isFinishing || activity.isDestroyed) return
         onMain {
             if (!initialized || rewardedAd != null || rewardedLoading || activity.isFinishing || activity.isDestroyed) return@onMain
+            mainHandler.removeCallbacks(rewardedRetry)
             rewardedLoading = true
             lastStatus = "Loading rewarded video…"
             try {
@@ -142,6 +185,8 @@ class AdsController(private val activity: Activity) {
                                 rewardedLoading = false
                                 rewardedAd = ad
                                 rewardedReady = true
+                                rewardedRetryDelayMs = 15_000L
+                                mainHandler.removeCallbacks(rewardedRetry)
                                 lastStatus = "Rewarded ad ready"
                             }
                         }
@@ -151,7 +196,8 @@ class AdsController(private val activity: Activity) {
                                 rewardedLoading = false
                                 rewardedAd = null
                                 rewardedReady = false
-                                lastStatus = "Rewarded ad unavailable: ${error.message} (code ${error.code})"
+                                lastStatus = "Rewarded ad unavailable: ${error.message} (code ${error.code}); retry scheduled"
+                                scheduleRewardedRetry()
                             }
                         }
                     }
@@ -160,7 +206,8 @@ class AdsController(private val activity: Activity) {
                 rewardedLoading = false
                 rewardedAd = null
                 rewardedReady = false
-                lastStatus = "Rewarded ad request failed: ${error.message ?: error.javaClass.simpleName}"
+                lastStatus = "Rewarded ad request failed: ${error.message ?: error.javaClass.simpleName}; retry scheduled"
+                scheduleRewardedRetry()
             }
         }
     }

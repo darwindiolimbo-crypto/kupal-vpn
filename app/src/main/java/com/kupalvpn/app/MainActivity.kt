@@ -5,6 +5,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.net.VpnService
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -140,10 +142,7 @@ private fun KupalVpnApp(
 ) {
     val context = LocalContext.current
     var tab by rememberSaveable { mutableStateOf("Home") }
-    var vpnState by remember { mutableStateOf(
-        context.getSharedPreferences(KupalVpnService.STATE_PREFS, android.content.Context.MODE_PRIVATE)
-            .getString(KupalVpnService.STATE_KEY, "disconnected") ?: "disconnected"
-    ) }
+    var vpnState by remember { mutableStateOf(readEffectiveVpnState(context)) }
     var pendingVpnConfig by remember { mutableStateOf<String?>(null) }
     val vpnPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val config = pendingVpnConfig
@@ -160,12 +159,20 @@ private fun KupalVpnApp(
             }
         }
     }
-    val previewConnected = vpnState == "connected" || vpnState == "connecting"
+    val previewConnected = vpnState == "connected"
+    val vpnConnecting = vpnState == "connecting"
     fun requestVpnToggle() {
         runCatching {
+            if (vpnConnecting) return@runCatching
             if (previewConnected) {
                 context.startService(Intent(context, KupalVpnService::class.java).setAction(KupalVpnService.ACTION_STOP))
             } else {
+                val validationError = validateVpnConfiguration(context)
+                if (validationError != null) {
+                    vpnState = "error: $validationError"
+                    saveVpnUiState(context, vpnState)
+                    return@runCatching
+                }
                 val config = LocalStore.readJson(context)
                 pendingVpnConfig = config
                 val permissionIntent = VpnService.prepare(context)
@@ -183,12 +190,12 @@ private fun KupalVpnApp(
         }.onFailure { error ->
             pendingVpnConfig = null
             vpnState = "error: ${error.message ?: "VPN operation failed"}"
+            saveVpnUiState(context, vpnState)
         }
     }
     LaunchedEffect(Unit) {
         while (true) {
-            vpnState = context.getSharedPreferences(KupalVpnService.STATE_PREFS, android.content.Context.MODE_PRIVATE)
-                .getString(KupalVpnService.STATE_KEY, "disconnected") ?: "disconnected"
+            vpnState = readEffectiveVpnState(context)
             delay(500)
         }
     }
@@ -231,6 +238,7 @@ private fun KupalVpnApp(
                 previewConnected = previewConnected,
                 onPreviewConnectionChange = { requestVpnToggle() },
                 vpnStatus = vpnState,
+                isConnecting = vpnConnecting,
                 vpnTimeMillis = vpnTimeBalance,
                 adsController = adsController,
                 adsEnabled = adsEnabled,
@@ -273,6 +281,7 @@ private fun HomeScreen(
     previewConnected: Boolean,
     onPreviewConnectionChange: (Boolean) -> Unit,
     vpnStatus: String,
+    isConnecting: Boolean,
     vpnTimeMillis: Long,
     adsController: AdsController,
     adsEnabled: Boolean,
@@ -358,25 +367,25 @@ private fun HomeScreen(
             ) {
                 Text(
                     vpnStatus.uppercase(),
-                    color = if (previewConnected) Green else Color.LightGray,
+                    color = if (previewConnected) Green else if (isConnecting) Color(0xFFFFD27A) else Color.LightGray,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.2.sp
                 )
                 Image(
                     painter = painterResource(if (previewConnected) R.drawable.connected_status_button else R.drawable.disconnected_status_button),
-                    contentDescription = if (previewConnected) "VPN connected. Tap to disconnect." else "VPN disconnected. Tap to connect.",
+                    contentDescription = if (previewConnected) "VPN connected. Tap to disconnect." else if (isConnecting) "VPN is connecting." else "VPN disconnected. Tap to connect.",
                     modifier = Modifier
                         .size(176.dp)
-                        .clickable(enabled = previewConnected || vpnTimeMillis > 0L) { onPreviewConnectionChange(!previewConnected) }
+                        .clickable(enabled = previewConnected || (!isConnecting && vpnTimeMillis > 0L)) { onPreviewConnectionChange(!previewConnected) }
                 )
                 Text("VPN TIME  ${formatCountdown(vpnTimeMillis)}", color = if (vpnTimeMillis > 0L) Green else Color(0xFFFFD27A), fontWeight = FontWeight.SemiBold)
                 Button(
                     onClick = { onPreviewConnectionChange(!previewConnected) },
-                    enabled = previewConnected || vpnTimeMillis > 0L,
+                    enabled = previewConnected || (!isConnecting && vpnTimeMillis > 0L),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(if (previewConnected) "Disconnect" else if (vpnTimeMillis > 0L) "Connect VPN" else "Earn VPN time to connect")
+                    Text(if (previewConnected) "Disconnect" else if (isConnecting) "Connecting…" else if (vpnTimeMillis > 0L) "Connect VPN" else "Earn VPN time to connect")
                 }
                 Text(
                     "Choose a saved server below, then configure its SSH or Xray connection in Config.",
@@ -401,7 +410,7 @@ private fun HomeScreen(
             onEnabledChange = onAdsEnabledChange,
             onShowAd = onWatchAd
         )
-        if (adsEnabled && adsController.adsReady) HomeBannerAd()
+        if (adsEnabled && adsController.adsReady) HomeBannerAd(adsController)
 
         SectionCard("Server profiles") {
             Text("Select a saved carrier or server profile. Profile details stay on this device.", color = Color.LightGray, fontSize = 12.sp)
@@ -532,7 +541,7 @@ private fun HomeScreen(
 private const val HOME_BANNER_AD_UNIT_ID = "ca-app-pub-9471897591250086/8384504352"
 
 @Composable
-private fun HomeBannerAd() {
+private fun HomeBannerAd(adsController: AdsController) {
     val activity = LocalContext.current as? Activity ?: return
     val screenWidthDp = LocalConfiguration.current.screenWidthDp.coerceAtLeast(1)
     val createdAdView = remember(activity) { mutableStateOf<AdView?>(null) }
@@ -545,8 +554,13 @@ private fun HomeBannerAd() {
                     adUnitId = HOME_BANNER_AD_UNIT_ID
                     setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
                     adListener = object : AdListener() {
+                        override fun onAdLoaded() {
+                            adsController.reportBannerLoaded()
+                        }
+
                         override fun onAdFailedToLoad(error: LoadAdError) {
                             android.util.Log.w("KupalVPN", "Banner ad unavailable: ${error.message}")
+                            adsController.reportBannerFailed(error)
                         }
                     }
                     createdAdView.value = this
@@ -784,12 +798,12 @@ private fun ConfigScreen(padding: PaddingValues) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = {
                     validation = try {
-                        JSONObject(jsonText)
-                        "Valid JSON syntax"
+                        XrayConfigValidator.validate(jsonText)
+                        "Valid Xray server configuration"
                     } catch (error: Exception) {
-                        "Invalid JSON: ${error.message ?: "parse error"}"
+                        error.message ?: "Invalid Xray configuration"
                     }
-                }) { Text("Validate JSON") }
+                }) { Text("Validate server") }
                 OutlinedButton(onClick = {
                     jsonText = LocalStore.readJson(context)
                     validation = "Draft reloaded"
@@ -848,6 +862,9 @@ private fun RewardAccessCard(
         }
         if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
         Text(adsController.lastStatus, color = Color.LightGray, fontSize = 10.sp)
+        if (adsEnabled && adsController.adsReady) {
+            Text(adsController.bannerStatus, color = Color.LightGray, fontSize = 10.sp)
+        }
         Text("The ad button remains available to retry loading. VPN time is added only after AdMob confirms the completed reward.", color = Color.LightGray, fontSize = 11.sp)
     }
 }
@@ -882,4 +899,48 @@ private fun formatCountdown(milliseconds: Long): String {
     val minutes = (seconds % 3_600) / 60
     val remainingSeconds = seconds % 60
     return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, remainingSeconds)
+}
+
+
+private fun validateVpnConfiguration(context: android.content.Context): String? =
+    runCatching {
+        if (TunnelModeStore.readMode(context) == TunnelModeStore.MODE_SSH) {
+            SshConfigStore.read(context).validate()
+        } else {
+            XrayConfigValidator.validate(LocalStore.readJson(context))
+        }
+        null
+    }.getOrElse { it.message ?: "Connection settings are incomplete" }
+
+private fun saveVpnUiState(context: android.content.Context, state: String) {
+    context.getSharedPreferences(KupalVpnService.STATE_PREFS, android.content.Context.MODE_PRIVATE)
+        .edit()
+        .putString(KupalVpnService.STATE_KEY, state)
+        .putLong(KupalVpnService.STATE_UPDATED_KEY, System.currentTimeMillis())
+        .apply()
+}
+
+private fun readEffectiveVpnState(context: android.content.Context): String {
+    val prefs = context.getSharedPreferences(KupalVpnService.STATE_PREFS, android.content.Context.MODE_PRIVATE)
+    val saved = prefs.getString(KupalVpnService.STATE_KEY, "disconnected") ?: "disconnected"
+    val updatedAt = prefs.getLong(KupalVpnService.STATE_UPDATED_KEY, 0L)
+    val staleConnecting = saved == "connecting" &&
+        (updatedAt <= 0L || System.currentTimeMillis() - updatedAt > 60_000L)
+    val vpnTransportActive = runCatching {
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val active = connectivity?.activeNetwork
+        val capabilities = active?.let { connectivity.getNetworkCapabilities(it) }
+        capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+    }.getOrDefault(false)
+    val staleConnected = saved == "connected" && !vpnTransportActive
+
+    if (staleConnecting || staleConnected) {
+        runCatching { LocalStore.pauseVpnTime(context) }
+        prefs.edit()
+            .putString(KupalVpnService.STATE_KEY, "disconnected")
+            .putLong(KupalVpnService.STATE_UPDATED_KEY, System.currentTimeMillis())
+            .apply()
+        return "disconnected"
+    }
+    return saved
 }

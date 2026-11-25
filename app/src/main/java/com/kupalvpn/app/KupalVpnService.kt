@@ -65,10 +65,12 @@ class KupalVpnService : VpnService() {
                 }
                 val config = intent.getStringExtra(EXTRA_CONFIG).orEmpty()
                 val mode = runCatching { TunnelModeStore.readMode(this) }.getOrDefault(TunnelModeStore.MODE_XRAY)
+                val xrayProblem = if (mode == TunnelModeStore.MODE_SSH) null else
+                    runCatching { XrayConfigValidator.validate(config) }.exceptionOrNull()?.message
                 val problem = when {
                     LocalStore.remainingVpnMillis(this) <= 0L -> "Watch a rewarded ad to get 2 hours of VPN time"
-                    mode != TunnelModeStore.MODE_SSH && config.isBlank() -> "Missing Xray configuration"
                     mode !in listOf(TunnelModeStore.MODE_SSH, TunnelModeStore.MODE_XRAY) -> "Unsupported connection mode"
+                    xrayProblem != null -> xrayProblem
                     else -> null
                 }
                 if (problem != null) {
@@ -94,15 +96,16 @@ class KupalVpnService : VpnService() {
 
     private fun startTunnel(configText: String, startId: Int) {
         if (tun != null) { starting.set(false); return }
-        setState("connecting")
         try {
-            // Resolve physical SSH/proxy endpoints while Android is still using the
-            // normal mobile/Wi-Fi network. Once the VPN TUN routes 0.0.0.0/0, these
-            // lookups can otherwise be sent into the tunnel before SOCKS is ready.
             val mode = TunnelModeStore.readMode(this)
             val sshConfig = if (mode == TunnelModeStore.MODE_SSH) {
                 SshConfigStore.read(this).also { it.validate() }
             } else null
+            if (mode != TunnelModeStore.MODE_SSH) XrayConfigValidator.validate(configText)
+            setState("connecting")
+            // Resolve physical SSH/proxy endpoints while Android is still using the
+            // normal mobile/Wi-Fi network. Once the VPN TUN routes 0.0.0.0/0, these
+            // lookups can otherwise be sent into the tunnel before SOCKS is ready.
             val sshAddresses = sshConfig?.let { resolveHostAddresses(it.host, "SSH server") } ?: emptyList()
             val proxyAddresses = sshConfig?.takeIf {
                 it.mode == SshConfig.MODE_HTTP_PAYLOAD_PROXY || it.mode == SshConfig.MODE_TLS_PAYLOAD_PROXY
@@ -278,7 +281,10 @@ class KupalVpnService : VpnService() {
     }
 
     private fun setState(state: String) {
-        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit().putString(STATE_KEY, state).apply()
+        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
+            .putString(STATE_KEY, state)
+            .putLong(STATE_UPDATED_KEY, System.currentTimeMillis())
+            .apply()
     }
 
     private fun formatTime(milliseconds: Long): String {
@@ -294,6 +300,7 @@ class KupalVpnService : VpnService() {
         const val EXTRA_CONFIG = "xray_config"
         const val STATE_PREFS = "kupal_vpn_runtime"
         const val STATE_KEY = "vpn_state"
+        const val STATE_UPDATED_KEY = "vpn_state_updated_at"
         private const val TAG = "KupalVpnService"
         private const val CHANNEL_ID = "kupal_vpn_connection"
         private const val NOTIFICATION_ID = 4101
