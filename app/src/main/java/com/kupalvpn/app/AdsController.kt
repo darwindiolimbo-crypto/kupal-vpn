@@ -34,13 +34,16 @@ class AdsController(private val activity: Activity) {
         private set
 
     private fun onMain(block: () -> Unit) {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            block()
-        } else {
-            mainHandler.post {
-                if (!activity.isFinishing && !activity.isDestroyed) block()
+        val action = Runnable {
+            if (activity.isFinishing || activity.isDestroyed) return@Runnable
+            try {
+                block()
+            } catch (error: Throwable) {
+                lastStatus = "Ad operation failed: ${error.message ?: error.javaClass.simpleName}"
             }
         }
+        if (Looper.myLooper() == Looper.getMainLooper()) action.run()
+        else mainHandler.post(action)
     }
 
     fun requestConsentAndInitialize() {
