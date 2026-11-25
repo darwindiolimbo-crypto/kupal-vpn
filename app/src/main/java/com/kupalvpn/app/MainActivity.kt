@@ -553,14 +553,28 @@ private fun HomeBannerAd(adsController: AdsController) {
                 AdView(context).apply {
                     adUnitId = HOME_BANNER_AD_UNIT_ID
                     setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
+                    var bannerRetryDelayMs = 30_000L
+                    val bannerView = this
                     adListener = object : AdListener() {
                         override fun onAdLoaded() {
+                            bannerRetryDelayMs = 30_000L
                             adsController.reportBannerLoaded()
                         }
 
                         override fun onAdFailedToLoad(error: LoadAdError) {
                             android.util.Log.w("KupalVPN", "Banner ad unavailable: ${error.message}")
                             adsController.reportBannerFailed(error)
+                            val retryDelay = bannerRetryDelayMs
+                            bannerRetryDelayMs = (bannerRetryDelayMs * 2L).coerceAtMost(5L * 60L * 1000L)
+                            bannerView.postDelayed({
+                                if (bannerView.parent != null && !activity.isFinishing && !activity.isDestroyed) {
+                                    runCatching {
+                                        bannerView.loadAd(com.google.android.gms.ads.AdRequest.Builder().build())
+                                    }.onFailure {
+                                        android.util.Log.w("KupalVPN", "Banner retry failed", it)
+                                    }
+                                }
+                            }, retryDelay)
                         }
                     }
                     createdAdView.value = this
