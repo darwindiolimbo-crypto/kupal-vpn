@@ -98,10 +98,22 @@ object ServerCatalogStore {
                     val trimmed=value.trim()
                     if(trimmed.startsWith("{")) runCatching { walk(JSONObject(trimmed),depth+1) }
                     else if(trimmed.startsWith("[")) runCatching { walk(JSONArray(trimmed),depth+1) }
-                    else if(listOf("vless://","vmess://","trojan://","ss://").any { trimmed.startsWith(it,true) }) {
-                        val protocol=trimmed.substringBefore("://").uppercase()
-                        val key="link|${trimmed.hashCode()}"
-                        if(ids.add(key)) rows += CatalogServer(key,protocol+" server",protocol,"",0,"",trimmed,"","","")
+                    else {
+                        val links=trimmed.lines().map(String::trim).filter { line ->
+                            listOf("vless://","vmess://","trojan://","ss://").any { line.startsWith(it,true) }
+                        }
+                        if(links.isNotEmpty()) links.forEach { link ->
+                            val protocol=link.substringBefore("://").uppercase()
+                            val key="link|"+link.hashCode()
+                            if(ids.add(key)) rows += CatalogServer(key,protocol+" server",protocol,"",0,"",link,"","","")
+                        } else {
+                            val clean=trimmed.replace("\\s".toRegex(),"").replace('-','+').replace('_','/')
+                            if(clean.length>=16) {
+                                val decoded=runCatching { String(java.util.Base64.getDecoder().decode(clean+"=".repeat((4-clean.length%4)%4)),Charsets.UTF_8) }
+                                    .recoverCatching { String(java.util.Base64.getUrlDecoder().decode(trimmed),Charsets.UTF_8) }.getOrNull()?.trim()
+                                if(!decoded.isNullOrBlank() && (decoded.startsWith("{")||decoded.startsWith("[")||decoded.contains("://"))) walk(decoded,depth+1)
+                            }
+                        }
                     }
                 }
             }
