@@ -928,8 +928,9 @@ private fun readEffectiveVpnState(context: android.content.Context): String {
         (updatedAt <= 0L || System.currentTimeMillis() - updatedAt > 60_000L)
     val vpnTransportActive = runCatching {
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
-        val active = connectivity?.activeNetwork
-        val capabilities = active?.let { connectivity.getNetworkCapabilities(it) }
+        val capabilities = connectivity?.let { manager ->
+            manager.activeNetwork?.let { manager.getNetworkCapabilities(it) }
+        }
         capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
     }.getOrDefault(false)
     val staleConnected = saved == "connected" && !vpnTransportActive

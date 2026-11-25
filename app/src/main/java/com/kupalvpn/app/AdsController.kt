@@ -155,7 +155,8 @@ class AdsController(private val activity: Activity) {
                         initialized = false
                         initializeRequested = false
                         adsReady = false
-                        lastStatus = "AdMob initialization failed: ${error.message ?: error.javaClass.simpleName}"
+                        lastStatus = "AdMob initialization failed: ${error.message ?: error.javaClass.simpleName}; retry scheduled"
+                        scheduleConsentRetry()
                     }
                 }
             }, "Kupal-AdMob-Init").start()
@@ -163,7 +164,8 @@ class AdsController(private val activity: Activity) {
             initialized = false
             initializeRequested = false
             adsReady = false
-            lastStatus = "AdMob initialization could not start: ${error.message ?: error.javaClass.simpleName}"
+            lastStatus = "AdMob initialization could not start: ${error.message ?: error.javaClass.simpleName}; retry scheduled"
+            scheduleConsentRetry()
         }
     }
 
