@@ -41,7 +41,7 @@ object XrayConfigValidator {
         val root = try {
             org.json.JSONObject(configText)
         } catch (error: Exception) {
-            throw IllegalArgumentException("Invalid Xray JSON: \${error.message ?: "parse error"}")
+            throw IllegalArgumentException("Invalid Xray JSON: ${error.message ?: "parse error"}")
         }
         val outbounds = root.optJSONArray("outbounds")
             ?: throw IllegalArgumentException("No Xray outbound is configured. Add a server before connecting.")
