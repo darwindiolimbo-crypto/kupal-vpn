@@ -40,7 +40,14 @@ object RemoteConfigStore {
             }
             return null
         }
-        val payloads=findArray(listOf("payloadTemplates","payload_templates","payloads","http_payloads","httpPayloads","payload_list","payloadList")) ?: JSONArray()
+        val payloadSource=findArray(listOf("payloadTemplates","payload_templates","payloads","http_payloads","httpPayloads","payload_list","payloadList")) ?: JSONArray()
+        val payloads=JSONArray()
+        for(i in 0 until payloadSource.length().coerceAtMost(MAX_ITEMS)) {
+            when(val item=payloadSource.opt(i)) {
+                is JSONObject -> payloads.put(item)
+                is String -> if(item.isNotBlank()) payloads.put(JSONObject().put("name","Payload "+(i+1)).put("payload",item))
+            }
+        }
         val dns=findArray(listOf("dnsPresets","dns_presets","dns","dns_list")) ?: JSONArray()
         val servers=findArray(listOf("servers","server_list","serverList","server_catalog","serverCatalog","nodes","entries")) ?: JSONArray()
         val profiles=findArray(listOf("xrayProfiles","xray_profiles","profiles","configs","config_list","configList","subscriptions")) ?: JSONArray()
