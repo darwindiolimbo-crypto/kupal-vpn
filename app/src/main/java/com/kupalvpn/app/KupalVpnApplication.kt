@@ -14,7 +14,7 @@ class KupalVpnApplication : Application() {
             runCatching {
                 val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
                 File(filesDir, CRASH_FILE).writeText(
-                    "Kupal VPN crash report\\nTime: $stamp\\nThread: ${thread.name}\\n\\n" +
+                    "Kupal VPN crash report\nTime: $stamp\nThread: ${thread.name}\n\n" +
                         error.stackTraceToString().take(96 * 1024)
                 )
             }
