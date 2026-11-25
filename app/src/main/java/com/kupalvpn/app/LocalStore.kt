@@ -11,6 +11,7 @@ object LocalStore {
     private const val KEY_VPN_TIME_BALANCE = "vpn_time_balance_ms"
     private const val KEY_VPN_TIME_STARTED = "vpn_time_started_at"
     private const val KEY_FIRST_RUN_INITIALIZED = "first_run_time_seeded"
+    private const val KEY_STARTER_TIME_RECOVERY_V2 = "starter_time_recovery_v2"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -41,14 +42,16 @@ object LocalStore {
     fun initializeFirstRun(context: Context) {
         synchronized(firstRunLock) {
             val p = prefs(context)
-            if (p.getBoolean(KEY_FIRST_RUN_INITIALIZED, false)) return
+            if (p.getBoolean(KEY_STARTER_TIME_RECOVERY_V2, false)) return
 
             val hasActiveTimer = p.getLong(KEY_VPN_TIME_STARTED, 0L) != 0L
             val currentBalance = p.getLong(KEY_VPN_TIME_BALANCE, 0L).coerceAtLeast(0L)
-            val editor = p.edit().putBoolean(KEY_FIRST_RUN_INITIALIZED, true)
+            val editor = p.edit()
+                .putBoolean(KEY_FIRST_RUN_INITIALIZED, true)
+                .putBoolean(KEY_STARTER_TIME_RECOVERY_V2, true)
 
-            // Previous builds could leave an explicit zero balance before this
-            // one-time starter grant existed. Treat that as uninitialized access.
+            // The previous release could mark first-run complete while leaving
+            // an older install's balance at zero. Recover that case exactly once.
             if (!hasActiveTimer && currentBalance <= 0L) {
                 editor.putLong(KEY_VPN_TIME_BALANCE, VPN_REWARD_MILLIS)
             }
