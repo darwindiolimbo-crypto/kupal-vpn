@@ -10,6 +10,7 @@ object LocalStore {
     private const val KEY_AD_LAST_SHOWN = "ads_last_shown"
     private const val KEY_VPN_TIME_BALANCE = "vpn_time_balance_ms"
     private const val KEY_VPN_TIME_STARTED = "vpn_time_started_at"
+    private const val KEY_FIRST_RUN_INITIALIZED = "first_run_time_seeded"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -29,6 +30,29 @@ object LocalStore {
 
     fun adsEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ADS_ENABLED, true)
     fun setAdsEnabled(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean(KEY_ADS_ENABLED, enabled).apply()
+
+    /**
+     * Gives a newly installed user two hours once. Existing installations updated
+     * from an older build are not treated as new users.
+     */
+    fun initializeFirstRun(context: Context) {
+        val p = prefs(context)
+        if (p.getBoolean(KEY_FIRST_RUN_INITIALIZED, false)) return
+
+        val isFreshInstall = runCatching {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            kotlin.math.abs(info.firstInstallTime - info.lastUpdateTime) <= 10_000L
+        }.getOrDefault(false)
+
+        val editor = p.edit().putBoolean(KEY_FIRST_RUN_INITIALIZED, true)
+        if (isFreshInstall &&
+            !p.contains(KEY_VPN_TIME_BALANCE) &&
+            p.getLong(KEY_VPN_TIME_STARTED, 0L) == 0L
+        ) {
+            editor.putLong(KEY_VPN_TIME_BALANCE, VPN_REWARD_MILLIS)
+        }
+        editor.commit()
+    }
 
     const val AD_COOLDOWN_SECONDS = 10L
     const val VPN_REWARD_MILLIS = 2L * 60L * 60L * 1000L
