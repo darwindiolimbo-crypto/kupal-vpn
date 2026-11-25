@@ -89,6 +89,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LocalStore.initializeFirstRun(this)
         adsController = AdsController(this)
         adsController.requestConsentAndInitialize()
 
@@ -201,20 +202,15 @@ private fun KupalVpnApp(
         containerColor = Navy,
         bottomBar = {
             NavigationBar(containerColor = Color(0xD90B0B0E)) {
-                listOf("Home", "Profiles", "Config", "Payload", "Free Servers", "Settings").forEach { destination ->
+                listOf("Home", "Config", "Settings").forEach { destination ->
                     val icon = when (destination) {
                         "Home" -> Icons.Default.Home
-                        "Profiles" -> Icons.Default.Settings
                         "Config" -> Icons.Default.Code
-                        "Payload" -> Icons.Default.Tune
                         else -> Icons.Default.Settings
                     }
                     NavigationBarItem(
                         selected = tab == destination,
-                        onClick = {
-                            // Section navigation does not trigger ads.
-                            tab = destination
-                        },
+                        onClick = { tab = destination },
                         icon = { androidx.compose.material3.Icon(icon, contentDescription = destination) },
                         label = { Text(destination) }
                     )
@@ -245,10 +241,7 @@ private fun KupalVpnApp(
                     }
                 }
             )
-            "Profiles" -> ProfilesScreen(padding = padding)
             "Config" -> ConfigScreen(padding = padding)
-            "Payload" -> PayloadScreen(padding = padding)
-            "Free Servers" -> ServerCatalogScreen(padding = padding)
             else -> SettingsScreen(padding = padding, onPrivacyOptions = onPrivacyOptions)
         }
     }
@@ -281,6 +274,52 @@ private fun HomeScreen(
     onAdsEnabledChange: (Boolean) -> Unit,
     onWatchAd: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var serverCatalog by remember { mutableStateOf(ServerCatalogStore.read(context)) }
+    var payloadTemplates by remember { mutableStateOf(loadRemotePayloadTemplates(context)) }
+    var checkingUpdates by remember { mutableStateOf(false) }
+    var updateStatus by rememberSaveable { mutableStateOf("Checking GitHub config and server sources…") }
+    var serverActionStatus by rememberSaveable { mutableStateOf("") }
+    var payloadActionStatus by rememberSaveable { mutableStateOf("") }
+    var profiles by remember { mutableStateOf(ProfileStore.profiles(context)) }
+    var activeProfileId by remember { mutableStateOf(ProfileStore.activeProfileId(context)) }
+
+    suspend fun checkForUpdates() {
+        if (checkingUpdates) return
+        checkingUpdates = true
+        val messages = mutableListOf<String>()
+        try {
+            try {
+                val result = RemoteConfigStore.update(context)
+                payloadTemplates = loadRemotePayloadTemplates(context)
+                messages += result
+            } catch (error: Exception) {
+                payloadTemplates = loadRemotePayloadTemplates(context)
+                messages += "Config update unavailable: ${error.message ?: "network error"}"
+            }
+            try {
+                serverCatalog = ServerCatalogStore.refresh(context)
+                messages += "Server list: ${serverCatalog.items.size} entries"
+            } catch (error: Exception) {
+                serverCatalog = ServerCatalogStore.read(context)
+                messages += "Server update unavailable: ${error.message ?: "network error"}"
+            }
+            updateStatus = messages.joinToString("  •  ")
+        } finally {
+            checkingUpdates = false
+        }
+    }
+
+    fun reloadProfiles() {
+        profiles = ProfileStore.profiles(context)
+        activeProfileId = ProfileStore.activeProfileId(context)
+    }
+
+    LaunchedEffect(Unit) {
+        checkForUpdates()
+    }
+
     ScreenColumn(padding) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -289,7 +328,7 @@ private fun HomeScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("KUPAL VPN", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.4.sp)
-                Text("Private connection • Your profiles", color = Color.LightGray, fontSize = 12.sp)
+                Text("Private connection • servers and payloads", color = Color.LightGray, fontSize = 12.sp)
             }
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF10271F)),
@@ -298,6 +337,7 @@ private fun HomeScreen(
                 Text("SECURE", modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp), color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
+
         Card(
             modifier = Modifier.fillMaxWidth().border(1.dp, GlassBorder, RoundedCornerShape(26.dp)),
             colors = CardDefaults.cardColors(containerColor = Panel),
@@ -331,17 +371,19 @@ private fun HomeScreen(
                     Text(if (previewConnected) "Disconnect" else if (vpnTimeMillis > 0L) "Connect VPN" else "Earn VPN time to connect")
                 }
                 Text(
-                    "Choose an SSH or Xray profile and save its server settings before connecting.",
+                    "Choose a saved server below, then configure its SSH or Xray connection in Config.",
                     color = Color.LightGray,
                     fontSize = 11.sp
                 )
             }
         }
+
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             MetricCard("DOWNLOAD", "0 KB/s", Modifier.weight(1f))
             MetricCard("UPLOAD", "0 KB/s", Modifier.weight(1f))
             MetricCard("LATENCY", "-- ms", Modifier.weight(1f))
         }
+
         RewardAccessCard(
             adsController = adsController,
             adsEnabled = adsEnabled,
@@ -352,6 +394,123 @@ private fun HomeScreen(
             onShowAd = onWatchAd
         )
         if (adsEnabled && adsController.adsReady) HomeBannerAd()
+
+        SectionCard("Server profiles") {
+            Text("Select a saved carrier or server profile. Profile details stay on this device.", color = Color.LightGray, fontSize = 12.sp)
+            profiles.forEach { profile ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(profile.name, fontWeight = FontWeight.SemiBold)
+                        Text("${profile.carrier} • ${profile.protocol}${if (profile.server.isBlank()) "" else " • ${profile.server}"}", color = Color.LightGray, fontSize = 10.sp)
+                    }
+                    if (profile.id == activeProfileId) {
+                        Text("ACTIVE", color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        OutlinedButton(onClick = {
+                            ProfileStore.select(context, profile.id)
+                            reloadProfiles()
+                        }) { Text("Select") }
+                    }
+                }
+            }
+            Text("Add carrier profile", color = Color.LightGray, fontSize = 11.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf("DITO", "Smart", "TNT", "Globe", "TM").forEach { carrier ->
+                    OutlinedButton(
+                        onClick = {
+                            val apn = when (carrier) {
+                                "DITO" -> "internet.dito.ph"
+                                "Globe", "TM" -> "internet.globe.com.ph"
+                                else -> "internet"
+                            }
+                            ProfileStore.add(context, carrier, apn)
+                            reloadProfiles()
+                        },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                    ) { Text(carrier, fontSize = 10.sp) }
+                }
+            }
+        }
+
+        SectionCard("Server list") {
+            Text("Server entries refresh automatically from the configured server source when Home opens.", color = Color.LightGray, fontSize = 12.sp)
+            Text("Version: ${serverCatalog.version} • Updated: ${serverCatalog.updatedAt}", color = Color.LightGray, fontSize = 10.sp)
+            Button(
+                onClick = { scope.launch { checkForUpdates() } },
+                enabled = !checkingUpdates,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (checkingUpdates) "Checking updates…" else "Check config & server updates") }
+            if (updateStatus.isNotBlank()) {
+                Text(updateStatus, color = if (updateStatus.contains("unavailable", true)) Color(0xFFFFD27A) else Green, fontSize = 11.sp)
+            }
+            val visibleServers = serverCatalog.items.take(20)
+            if (visibleServers.isEmpty()) {
+                Text("No server entries are cached yet. Check for updates after a server source is configured.", color = Color.LightGray, fontSize = 12.sp)
+            } else {
+                visibleServers.forEach { item ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0x80121216)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(item.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(
+                                listOf(item.protocol, item.country, if (item.host.isBlank()) "" else if (item.port > 0) "${item.host}:${item.port}" else item.host)
+                                    .filter { it.isNotBlank() }.joinToString(" • "),
+                                color = Color.LightGray,
+                                fontSize = 10.sp
+                            )
+                            if (item.description.isNotBlank()) Text(item.description, color = Color.LightGray, fontSize = 11.sp)
+                            OutlinedButton(
+                                onClick = {
+                                    serverActionStatus = runCatching { ServerCatalogStore.useServer(context, item) }
+                                        .getOrElse { "Could not add server: ${it.message ?: "unsupported entry"}" }
+                                    reloadProfiles()
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Add to profiles") }
+                        }
+                    }
+                }
+            }
+            if (serverActionStatus.isNotBlank()) {
+                Text(serverActionStatus, color = if (serverActionStatus.contains("could not", true)) Color(0xFFFFD27A) else Green, fontSize = 11.sp)
+            }
+            Text("Public servers are operated by third parties. Avoid sending sensitive traffic through unknown endpoints.", color = Color(0xFFFFD27A), fontSize = 11.sp)
+        }
+
+        SectionCard("Payloads") {
+            Text("Choose a saved SSH HTTP payload. The selected payload is saved to the active profile.", color = Color.LightGray, fontSize = 12.sp)
+            if (payloadTemplates.isEmpty()) {
+                Text("No remote payload templates are cached yet. The built-in default remains available.", color = Color.LightGray, fontSize = 12.sp)
+            } else {
+                payloadTemplates.forEach { (name, template) ->
+                    OutlinedButton(
+                        onClick = {
+                            SshConfigStore.savePayload(context, template)
+                            payloadActionStatus = "Applied payload: $name"
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(name) }
+                }
+            }
+            OutlinedButton(
+                onClick = {
+                    SshConfigStore.savePayload(context, SshConfigStore.DEFAULT_PAYLOAD)
+                    payloadActionStatus = "Built-in HTTP CONNECT payload restored."
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Use default HTTP CONNECT payload") }
+            if (payloadActionStatus.isNotBlank()) Text(payloadActionStatus, color = Green, fontSize = 11.sp)
+            Text("To edit the active payload, open Config → SSH → HTTP payload.", color = Color.LightGray, fontSize = 11.sp)
+        }
+
         SectionCard("Quick status") {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Engines", color = Color.LightGray)
@@ -362,7 +521,6 @@ private fun HomeScreen(
         CrashDiagnosticsCard()
     }
 }
-
 
 private const val HOME_BANNER_AD_UNIT_ID = "ca-app-pub-9471897591250086/8384504352"
 
@@ -420,6 +578,7 @@ private fun ConfigScreen(padding: PaddingValues) {
     val profileId = ProfileStore.activeProfileId(context)
     var tunnelMode by rememberSaveable(profileId) { mutableStateOf(TunnelModeStore.readMode(context)) }
     val savedSsh = remember(profileId) { SshConfigStore.read(context) }
+    var payloadTemplate by rememberSaveable(profileId) { mutableStateOf(savedSsh.payload) }
     var sshMode by rememberSaveable(profileId) { mutableStateOf(savedSsh.mode) }
     var sshHost by rememberSaveable(profileId) { mutableStateOf(savedSsh.host) }
     var sshPort by rememberSaveable(profileId) { mutableStateOf(savedSsh.port.toString()) }
@@ -530,11 +689,24 @@ private fun ConfigScreen(padding: PaddingValues) {
                     OutlinedTextField(sniHost, { sniHost = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SNI host name") }, singleLine = true)
                 }
             }
-            SectionCard("Payload") {
-                Text("Edit the HTTP request in the Payload tab. Supported tokens: [host], [port], [host_port], [crlf].", color = Color.LightGray, fontSize = 12.sp)
-                OutlinedButton(onClick = { saveMessage = "Open the Payload tab to edit the SSH payload." }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Payload editor is in the Payload tab")
-                }
+            SectionCard("HTTP payload") {
+                Text("SSH request payload. Supported tokens: [host], [port], [host_port], [crlf]. Remote templates are listed on Home.", color = Color.LightGray, fontSize = 12.sp)
+                OutlinedTextField(
+                    value = payloadTemplate,
+                    onValueChange = { payloadTemplate = it },
+                    modifier = Modifier.fillMaxWidth().height(190.dp),
+                    label = { Text("SSH HTTP payload") },
+                    minLines = 6,
+                    maxLines = 12,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
+                )
+                OutlinedButton(
+                    onClick = {
+                        SshConfigStore.savePayload(context, payloadTemplate)
+                        saveMessage = "SSH payload saved for this profile."
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Save payload") }
             }
             Button(
                 onClick = {
@@ -550,7 +722,7 @@ private fun ConfigScreen(padding: PaddingValues) {
                         proxyPort = proxyPort.toIntOrNull() ?: 0,
                         sniHost = sniHost.trim(),
                         udpGatewayPort = udpGatewayPort.toIntOrNull() ?: 0,
-                        payload = SshConfigStore.read(context).payload
+                        payload = payloadTemplate
                     )
                     try {
                         next.validate()
@@ -600,122 +772,6 @@ private fun ConfigScreen(padding: PaddingValues) {
     }
 }
 
-@Composable
-private fun PayloadScreen(padding: PaddingValues) {
-    val context = LocalContext.current
-    val profileId = ProfileStore.activeProfileId(context)
-    val scope = rememberCoroutineScope()
-    var payload by rememberSaveable(profileId) { mutableStateOf(SshConfigStore.read(context).payload) }
-    var host by rememberSaveable(profileId) { mutableStateOf(SshConfigStore.read(context).host) }
-    var port by rememberSaveable(profileId) { mutableStateOf(SshConfigStore.read(context).port.toString()) }
-    var result by rememberSaveable(profileId) { mutableStateOf("SSH payload editor ready") }
-    var updating by remember { mutableStateOf(false) }
-    var templates by remember(profileId) { mutableStateOf(loadRemotePayloadTemplates(context)) }
-
-    val preview = payload
-        .replace("[host_port]", if (host.contains(':') && !host.startsWith("[")) "[$host]:$port" else "$host:$port")
-        .replace("[host]", host)
-        .replace("[port]", port)
-        .replace("[crlf]", "\r\n")
-        .replace("\\r\\n", "\r\n")
-        .replace("\\n", "\r\n")
-
-    ScreenColumn(padding) {
-        Text("SSH payload studio", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("HTTP payloads are used by the SSH connection engine. They are not a separate HTTP VPN mode.", color = Color.LightGray, fontSize = 13.sp)
-        SectionCard("GitHub payload catalog") {
-            Text("Download the latest safe templates and DNS presets from the Kupal VPN config repository.", color = Color.LightGray, fontSize = 12.sp)
-            Button(
-                onClick = {
-                    scope.launch {
-                        updating = true
-                        result = "Checking GitHub for configuration updates…"
-                        try {
-                            result = RemoteConfigStore.update(context)
-                            templates = loadRemotePayloadTemplates(context)
-                        } catch (error: Exception) {
-                            result = error.message ?: "Config update failed"
-                        } finally {
-                            updating = false
-                        }
-                    }
-                },
-                enabled = !updating,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(if (updating) "Updating…" else "Update templates from GitHub") }
-            OutlinedButton(
-                onClick = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(RemoteConfigStore.EDIT_URL)))
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Edit payload catalog on GitHub") }
-            if (templates.isEmpty()) {
-                Text("No remote templates cached yet. Tap Update templates from GitHub.", fontSize = 12.sp, color = Color.LightGray)
-            } else {
-                templates.forEach { (name, template) ->
-                    OutlinedButton(
-                        onClick = {
-                            payload = template
-                            SshConfigStore.savePayload(context, template)
-                            result = "Loaded template: $name"
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("＋ $name") }
-                }
-            }
-        }
-        SectionCard("Request payload") {
-            OutlinedTextField(
-                value = payload,
-                onValueChange = {
-                    payload = it
-                    SshConfigStore.savePayload(context, it)
-                    result = "Draft saved for the active profile"
-                },
-                modifier = Modifier.fillMaxWidth().height(220.dp),
-                label = { Text("HTTP / CONNECT payload") },
-                minLines = 7,
-                maxLines = 14,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None)
-            )
-            Text("Tokens: [host], [port], [host_port], [crlf]", color = Green, fontSize = 12.sp)
-        }
-        SectionCard("Preview target") {
-            OutlinedTextField(
-                value = host,
-                onValueChange = { host = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("SSH server host") },
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = port,
-                onValueChange = { port = it.filter(Char::isDigit).take(5) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("SSH server port") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-            )
-            Text("Preview only. The live SSH endpoint is saved from Config → SSH server.", fontSize = 11.sp, color = Color.LightGray)
-        }
-        SectionCard("Rendered payload") {
-            Text(preview.replace("\r", "\\r").replace("\n", "\\n\n"), fontSize = 11.sp, color = Color(0xFFB8D8EF))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = {
-                SshConfigStore.savePayload(context, payload)
-                result = "Payload saved to the active SSH profile"
-            }, modifier = Modifier.weight(1f)) { Text("Save") }
-            OutlinedButton(onClick = {
-                payload = SshConfigStore.DEFAULT_PAYLOAD
-                SshConfigStore.savePayload(context, payload)
-                result = "Default HTTP CONNECT template restored"
-            }, modifier = Modifier.weight(1f)) { Text("Reset") }
-        }
-        Text(result, color = if (result.contains("failed", true)) Color(0xFFFFD27A) else Green, fontSize = 12.sp)
-    }
-}
-
 private fun loadRemotePayloadTemplates(context: android.content.Context): List<Pair<String, String>> {
     val array = RemoteConfigStore.read(context).optJSONArray("payloadTemplates") ?: return emptyList()
     return (0 until array.length()).mapNotNull { index ->
@@ -736,7 +792,7 @@ private fun RewardAccessCard(
     onEnabledChange: (Boolean) -> Unit,
     onShowAd: () -> Unit
 ) {
-    val adReady = remainingMillis <= 0L
+    val cooldownFinished = remainingMillis <= 0L
     SectionCard("Earn VPN time") {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -752,17 +808,18 @@ private fun RewardAccessCard(
         Text("+2 hours for each completed rewarded video", fontWeight = FontWeight.SemiBold, color = Green, fontSize = 13.sp)
         Text(
             if (!adsEnabled) "Rewarded ads are paused"
-            else if (adReady) "A rewarded video is ready"
-            else "Next video available in ${formatCountdown(remainingMillis)}",
+            else if (!cooldownFinished) "Next video available in ${formatCountdown(remainingMillis)}"
+            else if (adsController.rewardedReady) "A rewarded video is ready"
+            else adsController.lastStatus,
             color = Color.LightGray,
             fontSize = 12.sp
         )
-        Button(onClick = onShowAd, enabled = adsEnabled && adReady, modifier = Modifier.fillMaxWidth()) {
-            Text("Watch ad · Add 2 hours")
+        Button(onClick = onShowAd, enabled = adsEnabled && cooldownFinished, modifier = Modifier.fillMaxWidth()) {
+            Text(if (adsController.rewardedReady) "Watch ad · Add 2 hours" else "Load / retry rewarded ad")
         }
         if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
         Text(adsController.lastStatus, color = Color.LightGray, fontSize = 10.sp)
-        Text("10-second cooldown between ad starts. The reward is added only after AdMob confirms completion.", color = Color.LightGray, fontSize = 11.sp)
+        Text("The ad button remains available to retry loading. VPN time is added only after AdMob confirms the completed reward.", color = Color.LightGray, fontSize = 11.sp)
     }
 }
 
@@ -771,7 +828,6 @@ private fun SettingsScreen(
     padding: PaddingValues,
     onPrivacyOptions: () -> Unit
 ) {
-    val context = LocalContext.current
     ScreenColumn(padding) {
         Text("Settings", fontSize = 23.sp, fontWeight = FontWeight.Bold)
         Text("App preferences, privacy and remote configuration.", color = Color.LightGray, fontSize = 13.sp)
@@ -782,15 +838,7 @@ private fun SettingsScreen(
             }
         }
         SectionCard("Configuration updates") {
-            Text("Payload templates and DNS presets are updated from the public Kupal VPN GitHub catalog. Server credentials are never included in that catalog.", color = Color.LightGray, fontSize = 12.sp)
-            OutlinedButton(
-                onClick = {
-                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(RemoteConfigStore.EDIT_URL))
-                    context.startActivity(intent)
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Edit config catalog on GitHub") }
-            Text(RemoteConfigStore.CONFIG_URL, color = Color(0xFF59B9E8), fontSize = 10.sp)
+            Text("Config and server templates update automatically from their configured sources when Home opens. Use the Check config & server updates button on Home to run a manual check.", color = Color.LightGray, fontSize = 12.sp)
         }
         SectionCard("About Kupal VPN") {
             Text("Premium glass interface • SSH payload • Xray profiles", color = Color.LightGray, fontSize = 12.sp)
