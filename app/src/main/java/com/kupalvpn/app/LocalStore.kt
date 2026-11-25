@@ -44,16 +44,16 @@ object LocalStore {
             val p = prefs(context)
             if (p.getBoolean(KEY_STARTER_TIME_RECOVERY_V2, false)) return
 
-            val hasActiveTimer = p.getLong(KEY_VPN_TIME_STARTED, 0L) != 0L
             val currentBalance = p.getLong(KEY_VPN_TIME_BALANCE, 0L).coerceAtLeast(0L)
             val editor = p.edit()
                 .putBoolean(KEY_FIRST_RUN_INITIALIZED, true)
                 .putBoolean(KEY_STARTER_TIME_RECOVERY_V2, true)
 
-            // The previous release could mark first-run complete while leaving
-            // an older install's balance at zero. Recover that case exactly once.
-            if (!hasActiveTimer && currentBalance <= 0L) {
+            // Recover installs that were left with a zero balance by an earlier
+            // build. Clear a stale start marker so the new grant is not consumed.
+            if (currentBalance <= 0L) {
                 editor.putLong(KEY_VPN_TIME_BALANCE, VPN_REWARD_MILLIS)
+                    .remove(KEY_VPN_TIME_STARTED)
             }
             check(editor.commit()) { "Could not save initial VPN time" }
         }
