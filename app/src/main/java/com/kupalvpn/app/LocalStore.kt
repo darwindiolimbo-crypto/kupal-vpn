@@ -35,17 +35,25 @@ object LocalStore {
      * Grants the initial two-hour balance once when no VPN-time history exists.
      * This also covers fresh installs that receive an app update before first launch.
      */
-    fun initializeFirstRun(context: Context) {
-        val p = prefs(context)
-        if (p.getBoolean(KEY_FIRST_RUN_INITIALIZED, false)) return
+    private val firstRunLock = Any()
+    private val vpnTimeLock = Any()
 
-        val editor = p.edit().putBoolean(KEY_FIRST_RUN_INITIALIZED, true)
-        if (!p.contains(KEY_VPN_TIME_BALANCE) &&
-            p.getLong(KEY_VPN_TIME_STARTED, 0L) == 0L
-        ) {
-            editor.putLong(KEY_VPN_TIME_BALANCE, VPN_REWARD_MILLIS)
+    fun initializeFirstRun(context: Context) {
+        synchronized(firstRunLock) {
+            val p = prefs(context)
+            if (p.getBoolean(KEY_FIRST_RUN_INITIALIZED, false)) return
+
+            val hasActiveTimer = p.getLong(KEY_VPN_TIME_STARTED, 0L) != 0L
+            val currentBalance = p.getLong(KEY_VPN_TIME_BALANCE, 0L).coerceAtLeast(0L)
+            val editor = p.edit().putBoolean(KEY_FIRST_RUN_INITIALIZED, true)
+
+            // Previous builds could leave an explicit zero balance before this
+            // one-time starter grant existed. Treat that as uninitialized access.
+            if (!hasActiveTimer && currentBalance <= 0L) {
+                editor.putLong(KEY_VPN_TIME_BALANCE, VPN_REWARD_MILLIS)
+            }
+            check(editor.commit()) { "Could not save initial VPN time" }
         }
-        editor.commit()
     }
 
     const val AD_COOLDOWN_SECONDS = 10L
@@ -69,30 +77,39 @@ object LocalStore {
     }
 
     fun grantVpnTime(context: Context, millis: Long = VPN_REWARD_MILLIS) {
-        val p = prefs(context)
-        val active = p.getLong(KEY_VPN_TIME_STARTED, 0L) != 0L
-        val updated = remainingVpnMillis(context) + millis
-        val editor = p.edit().putLong(KEY_VPN_TIME_BALANCE, updated)
-        if (active) editor.putLong(KEY_VPN_TIME_STARTED, System.currentTimeMillis())
-        editor.apply()
+        require(millis > 0L) { "VPN time grant must be positive" }
+        synchronized(vpnTimeLock) {
+            val p = prefs(context)
+            val started = p.getLong(KEY_VPN_TIME_STARTED, 0L)
+            val balance = remainingVpnMillis(context)
+            val editor = p.edit().putLong(KEY_VPN_TIME_BALANCE, balance + millis)
+            if (started != 0L) editor.putLong(KEY_VPN_TIME_STARTED, System.currentTimeMillis())
+            check(editor.commit()) { "Could not save rewarded VPN time" }
+        }
     }
 
-    fun startVpnTime(context: Context): Boolean {
+    fun startVpnTime(context: Context): Boolean = synchronized(vpnTimeLock) {
         val p = prefs(context)
-        if (remainingVpnMillis(context) <= 0L) return false
+        if (remainingVpnMillis(context) <= 0L) return@synchronized false
         if (p.getLong(KEY_VPN_TIME_STARTED, 0L) == 0L) {
-            p.edit().putLong(KEY_VPN_TIME_STARTED, System.currentTimeMillis()).apply()
+            check(p.edit().putLong(KEY_VPN_TIME_STARTED, System.currentTimeMillis()).commit()) {
+                "Could not start VPN time accounting"
+            }
         }
-        return true
+        true
     }
 
     fun pauseVpnTime(context: Context) {
-        val p = prefs(context)
-        val started = p.getLong(KEY_VPN_TIME_STARTED, 0L)
-        if (started != 0L) {
-            val remaining = remainingVpnMillis(context)
-            p.edit().putLong(KEY_VPN_TIME_BALANCE, remaining)
-                .remove(KEY_VPN_TIME_STARTED).apply()
+        synchronized(vpnTimeLock) {
+            val p = prefs(context)
+            val started = p.getLong(KEY_VPN_TIME_STARTED, 0L)
+            if (started != 0L) {
+                val remaining = remainingVpnMillis(context)
+                check(p.edit().putLong(KEY_VPN_TIME_BALANCE, remaining)
+                    .remove(KEY_VPN_TIME_STARTED).commit()) {
+                    "Could not save remaining VPN time"
+                }
+            }
         }
     }
 
