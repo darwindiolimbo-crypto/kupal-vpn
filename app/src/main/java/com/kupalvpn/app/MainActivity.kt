@@ -89,7 +89,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        LocalStore.initializeFirstRun(this)
+        runCatching { LocalStore.initializeFirstRun(applicationContext) }
         adsController = AdsController(this)
         adsController.requestConsentAndInitialize()
 
