@@ -23,6 +23,8 @@ class AdsController(private val activity: Activity) {
     @Volatile private var rewardedAd: RewardedAd? = null
     @Volatile private var initialized = false
     @Volatile private var initializeRequested = false
+    @Volatile private var rewardedLoading = false
+    @Volatile private var rewardAdShowing = false
 
     var lastStatus: String by mutableStateOf("Waiting for privacy consent")
         private set
@@ -115,9 +117,10 @@ class AdsController(private val activity: Activity) {
     }
 
     private fun loadRewardedAd() {
-        if (!initialized || rewardedAd != null || activity.isFinishing || activity.isDestroyed) return
+        if (!initialized || rewardedAd != null || rewardedLoading || activity.isFinishing || activity.isDestroyed) return
         onMain {
-            if (!initialized || rewardedAd != null || activity.isFinishing || activity.isDestroyed) return@onMain
+            if (!initialized || rewardedAd != null || rewardedLoading || activity.isFinishing || activity.isDestroyed) return@onMain
+            rewardedLoading = true
             lastStatus = "Loading rewarded video…"
             try {
                 RewardedAd.load(
@@ -127,6 +130,7 @@ class AdsController(private val activity: Activity) {
                     object : RewardedAdLoadCallback() {
                         override fun onAdLoaded(ad: RewardedAd) {
                             onMain {
+                                rewardedLoading = false
                                 rewardedAd = ad
                                 rewardedReady = true
                                 lastStatus = "Rewarded ad ready"
@@ -135,6 +139,7 @@ class AdsController(private val activity: Activity) {
 
                         override fun onAdFailedToLoad(error: LoadAdError) {
                             onMain {
+                                rewardedLoading = false
                                 rewardedAd = null
                                 rewardedReady = false
                                 lastStatus = "Rewarded ad unavailable: ${error.message} (code ${error.code})"
@@ -143,6 +148,7 @@ class AdsController(private val activity: Activity) {
                     }
                 )
             } catch (error: Throwable) {
+                rewardedLoading = false
                 rewardedAd = null
                 rewardedReady = false
                 lastStatus = "Rewarded ad request failed: ${error.message ?: error.javaClass.simpleName}"
@@ -160,6 +166,7 @@ class AdsController(private val activity: Activity) {
         }
         return try {
             if (activity.isFinishing || activity.isDestroyed) return "Activity is no longer available"
+            if (rewardAdShowing) return "A rewarded video is already open"
             if (!LocalStore.adsEnabled(activity)) return "Rewarded ads are paused in Settings"
             val cooldown = remainingMillis()
             if (cooldown > 0L) return "Wait ${(cooldown + 999L) / 1000L} seconds before the next ad"
@@ -175,6 +182,7 @@ class AdsController(private val activity: Activity) {
 
             rewardedAd = null
             rewardedReady = false
+            rewardAdShowing = true
             var earned = false
             ad.fullScreenContentCallback = object : FullScreenContentCallback() {
                 override fun onAdShowedFullScreenContent() {
@@ -187,6 +195,7 @@ class AdsController(private val activity: Activity) {
 
                 override fun onAdDismissedFullScreenContent() {
                     onMain {
+                        rewardAdShowing = false
                         lastStatus = if (earned) "Reward granted: 2 hours VPN time" else "Ad closed; no reward earned"
                         loadRewardedAd()
                     }
@@ -194,6 +203,7 @@ class AdsController(private val activity: Activity) {
 
                 override fun onAdFailedToShowFullScreenContent(error: AdError) {
                     onMain {
+                        rewardAdShowing = false
                         lastStatus = "Ad failed to show: ${error.message}"
                         loadRewardedAd()
                     }
@@ -213,7 +223,9 @@ class AdsController(private val activity: Activity) {
             })
             "Showing rewarded video"
         } catch (error: Throwable) {
+            rewardAdShowing = false
             rewardedAd = null
+            rewardedLoading = false
             rewardedReady = false
             lastStatus = "Rewarded ad failed: ${error.message ?: error.javaClass.simpleName}"
             loadRewardedAd()
