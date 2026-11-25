@@ -23,6 +23,7 @@ class AdsController(private val activity: Activity) {
     @Volatile private var rewardedAd: RewardedAd? = null
     @Volatile private var initialized = false
     @Volatile private var initializeRequested = false
+    @Volatile private var consentRequestInFlight = false
     @Volatile private var rewardedLoading = false
     @Volatile private var rewardAdShowing = false
 
@@ -49,6 +50,8 @@ class AdsController(private val activity: Activity) {
     fun requestConsentAndInitialize() {
         if (activity.isFinishing || activity.isDestroyed) return
         onMain {
+            if (consentRequestInFlight || initializeRequested || initialized) return@onMain
+            consentRequestInFlight = true
             try {
                 val consentInformation = UserMessagingPlatform.getConsentInformation(activity)
                 val parameters = ConsentRequestParameters.Builder().build()
@@ -57,6 +60,7 @@ class AdsController(private val activity: Activity) {
                     parameters,
                     {
                         onMain {
+                            consentRequestInFlight = false
                             try {
                                 UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { formError ->
                                     onMain {
@@ -75,12 +79,14 @@ class AdsController(private val activity: Activity) {
                     },
                     { requestError ->
                         onMain {
+                            consentRequestInFlight = false
                             lastStatus = "Consent update: ${requestError.message}"
                             if (consentInformation.canRequestAds()) initializeAds()
                         }
                     }
                 )
             } catch (error: Throwable) {
+                consentRequestInFlight = false
                 lastStatus = "Privacy consent unavailable: ${error.message ?: error.javaClass.simpleName}"
             }
         }
