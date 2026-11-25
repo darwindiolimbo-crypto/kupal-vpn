@@ -23,6 +23,8 @@ class AdsController(private val activity: Activity) {
         private set
     var adsReady: Boolean by mutableStateOf(false)
         private set
+    var rewardedReady: Boolean by mutableStateOf(false)
+        private set
 
     fun requestConsentAndInitialize() {
         if (activity.isFinishing || activity.isDestroyed) return
@@ -95,16 +97,19 @@ class AdsController(private val activity: Activity) {
                 object : RewardedAdLoadCallback() {
                     override fun onAdLoaded(ad: RewardedAd) {
                         rewardedAd = ad
+                        rewardedReady = true
                         lastStatus = "Rewarded ad ready"
                     }
                     override fun onAdFailedToLoad(error: LoadAdError) {
                         rewardedAd = null
-                        lastStatus = "Rewarded ad unavailable: ${error.message}"
+                        rewardedReady = false
+                        lastStatus = "Rewarded ad unavailable: ${error.message} (code ${error.code})"
                     }
                 }
             )
         } catch (error: Exception) {
             rewardedAd = null
+            rewardedReady = false
             lastStatus = "Rewarded ad request failed: ${error.message ?: "unknown error"}"
         }
     }
@@ -123,11 +128,13 @@ class AdsController(private val activity: Activity) {
             return "Rewarded video is loading. Try again shortly."
         }
         rewardedAd = null
+        rewardedReady = false
         var earned = false
         try {
             ad.fullScreenContentCallback = object : FullScreenContentCallback() {
                 override fun onAdShowedFullScreenContent() {
                     LocalStore.markAdShown(activity)
+                    rewardedReady = false
                     lastStatus = "Rewarded ad shown"
                 }
                 override fun onAdDismissedFullScreenContent() {
@@ -150,6 +157,7 @@ class AdsController(private val activity: Activity) {
             })
             return "Showing rewarded video"
         } catch (error: Exception) {
+            rewardedReady = false
             lastStatus = "Rewarded ad failed to show: ${error.message ?: "unknown error"}"
             loadRewardedAd()
             return lastStatus
