@@ -91,14 +91,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         runCatching { LocalStore.initializeFirstRun(applicationContext) }
         adsController = AdsController(this)
-        adsController.requestConsentAndInitialize()
 
+        // Render the VPN controls first. Start the optional consent/ads SDK only
+        // after the first UI frame so SDK startup cannot block app launch.
         setContent {
             KupalVpnTheme {
                 KupalVpnApp(
                     adsController = adsController,
                     onPrivacyOptions = { adsController.showPrivacyOptions() }
                 )
+            }
+        }
+        window.decorView.post {
+            if (!isFinishing && !isDestroyed) {
+                runCatching { adsController.requestConsentAndInitialize() }
+                    .onFailure { android.util.Log.e("KupalVPN", "Deferred ad initialization failed", it) }
             }
         }
     }
@@ -321,6 +328,7 @@ private fun HomeScreen(
     }
 
     ScreenColumn(padding) {
+        CrashDiagnosticsCard()
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -518,7 +526,6 @@ private fun HomeScreen(
             }
             Text("Rewarded time is saved on this device and is deducted only while the VPN is connected.", color = Color.LightGray, fontSize = 12.sp)
         }
-        CrashDiagnosticsCard()
     }
 }
 
@@ -527,29 +534,51 @@ private const val HOME_BANNER_AD_UNIT_ID = "ca-app-pub-9471897591250086/83845043
 @Composable
 private fun HomeBannerAd() {
     val activity = LocalContext.current as? Activity ?: return
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val adView = remember(activity) {
-        AdView(activity).apply {
-            adUnitId = HOME_BANNER_AD_UNIT_ID
-            setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
-            adListener = object : AdListener() {
-                override fun onAdFailedToLoad(error: LoadAdError) {
-                    // Banner failures should never affect VPN controls or Home rendering.
-                }
-            }
-            loadAd(com.google.android.gms.ads.AdRequest.Builder().build())
-        }
-    }
-    DisposableEffect(adView) {
-        onDispose { adView.destroy() }
-    }
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp.coerceAtLeast(1)
+    val createdAdView = remember(activity) { mutableStateOf<AdView?>(null) }
+
     AndroidView(
         modifier = Modifier.fillMaxWidth(),
-        factory = { adView },
+        factory = { context ->
+            runCatching {
+                AdView(context).apply {
+                    adUnitId = HOME_BANNER_AD_UNIT_ID
+                    setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
+                    adListener = object : AdListener() {
+                        override fun onAdFailedToLoad(error: LoadAdError) {
+                            android.util.Log.w("KupalVPN", "Banner ad unavailable: ${error.message}")
+                        }
+                    }
+                    createdAdView.value = this
+                    loadAd(com.google.android.gms.ads.AdRequest.Builder().build())
+                }
+            }.getOrElse { error ->
+                // A banner is optional: never let a vendor SDK/view failure crash Home.
+                android.util.Log.e("KupalVPN", "Banner view could not be created", error)
+                android.widget.FrameLayout(context)
+            }
+        },
         update = { view ->
-            view.setAdSize(AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp))
+            (view as? AdView)?.let { banner ->
+                runCatching {
+                    banner.setAdSize(
+                        AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, screenWidthDp)
+                    )
+                }.onFailure {
+                    android.util.Log.w("KupalVPN", "Banner size update failed", it)
+                }
+            }
         }
     )
+    DisposableEffect(activity) {
+        onDispose {
+            createdAdView.value?.let { banner ->
+                runCatching { banner.destroy() }
+                    .onFailure { android.util.Log.w("KupalVPN", "Banner cleanup failed", it) }
+            }
+            createdAdView.value = null
+        }
+    }
 }
 
 @Composable
