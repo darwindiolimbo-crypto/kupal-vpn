@@ -261,9 +261,7 @@ private fun KupalVpnApp(
                 padding = padding,
                 onPrivacyOptions = onPrivacyOptions,
                 privacyOptionsRequired = adsController.privacyOptionsRequired,
-                consentReady = adsController.consentReady,
-                consentStatus = adsController.consentStatus
-            )
+             )
         }
     }
 }
@@ -498,10 +496,10 @@ private fun HomeScreen(
                 onValueChange = { serverSearch = it },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                label = { Text("Search server, carrier, country or protocol") }
+                label = { Text("Search servers") }
             )
             if (serverCatalog.items.isEmpty()) {
-                Text("MobiVPN server catalog is not available yet. Refresh to retry.", color = Color.LightGray, fontSize = 11.sp)
+                Text("No servers available.", color = Color.LightGray, fontSize = 11.sp)
             } else if (filteredServers.isEmpty()) {
                 Text("No matching servers.", color = Color.LightGray, fontSize = 11.sp)
             } else {
@@ -621,7 +619,7 @@ private fun HomeScreen(
                 }
             }
             if (payloadTemplates.isEmpty() && mobivpnPayloads.isEmpty() && mobivpnXrayItems.isEmpty()) {
-                Text("No remote configs cached. The built-in HTTP CONNECT template is available below.", color = Color.LightGray, fontSize = 11.sp)
+                Text("No configs available.", color = Color.LightGray, fontSize = 11.sp)
             }
             OutlinedButton(
                 onClick = {
@@ -768,7 +766,7 @@ private fun ConfigScreen(padding: PaddingValues) {
 
     ScreenColumn(padding) {
         Text("Connection engine", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("Choose the tunnel protocol for this profile.", color = Color.LightGray, fontSize = 13.sp)
+        
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             listOf(TunnelModeStore.MODE_XRAY, TunnelModeStore.MODE_SSH).forEach { mode ->
                 if (tunnelMode == mode) {
@@ -787,14 +785,14 @@ private fun ConfigScreen(padding: PaddingValues) {
 
         if (tunnelMode == TunnelModeStore.MODE_SSH) {
             SectionCard("SSH server") {
-                Text("SSH credentials and HTTP transport are stored per profile on this device.", color = Color.LightGray, fontSize = 12.sp)
+                
                 OutlinedTextField(sshHost, { sshHost = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH server / host") }, singleLine = true)
                 OutlinedTextField(sshPort, { sshPort = it.filter(Char::isDigit).take(5) }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 OutlinedTextField(sshUsername, { sshUsername = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH username") }, singleLine = true)
                 OutlinedTextField(sshPassword, { sshPassword = it }, modifier = Modifier.fillMaxWidth(), label = { Text("SSH password (optional when key is used)") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
             }
             SectionCard("SSH authentication key") {
-                Text("You can authenticate with a password, a private key, or both. Imported keys are encrypted with Android Keystore before being stored.", color = Color.LightGray, fontSize = 12.sp)
+                
                 Button(onClick = { privateKeyPicker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) {
                     Text(if (privateKey.isBlank()) "Import private key" else "Replace private key")
                 }
@@ -829,11 +827,6 @@ private fun ConfigScreen(padding: PaddingValues) {
                         OutlinedButton(onClick = { sshMode = value }, modifier = Modifier.fillMaxWidth()) { Text(label) }
                     }
                 }
-                Text(
-                    "HTTP is a transport/payload option for SSH. It is not a separate VPN engine.",
-                    color = Color.LightGray,
-                    fontSize = 12.sp
-                )
             }
             if (sshMode == SshConfig.MODE_HTTP_PAYLOAD_PROXY || sshMode == SshConfig.MODE_TLS_PAYLOAD_PROXY) {
                 SectionCard("HTTP proxy") {
@@ -847,7 +840,7 @@ private fun ConfigScreen(padding: PaddingValues) {
                 }
             }
             SectionCard("HTTP payload") {
-                Text("SSH request payload. Supported tokens: [host], [port], [host_port], [crlf]. Remote templates are listed on Home.", color = Color.LightGray, fontSize = 12.sp)
+                
                 OutlinedTextField(
                     value = payloadTemplate,
                     onValueChange = { payloadTemplate = it },
@@ -895,7 +888,7 @@ private fun ConfigScreen(padding: PaddingValues) {
             if (saveMessage.isNotBlank()) Text(saveMessage, color = if (saveMessage.contains("saved")) Green else Color(0xFFFFD27A), fontSize = 12.sp)
         } else {
             Text("Xray configuration", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text("Edit a VLESS, VMess, Trojan or Shadowsocks Xray JSON profile.", color = Color.LightGray, fontSize = 13.sp)
+            
             OutlinedTextField(
                 value = jsonText,
                 onValueChange = {
@@ -924,7 +917,7 @@ private fun ConfigScreen(padding: PaddingValues) {
                 }) { Text("Reload saved") }
             }
             Text(validation, color = if (validation.startsWith("Valid")) Green else Color(0xFFFFD27A))
-            Text("Use authorized server values. Never share your UUID or private keys publicly.", color = Color.LightGray, fontSize = 12.sp)
+            
         }
     }
 }
@@ -957,7 +950,7 @@ private fun RewardAccessCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("Available access", color = Color.LightGray, fontSize = 12.sp)
+                
                 Text(formatCountdown(vpnTimeMillis), fontSize = 25.sp, fontWeight = FontWeight.Bold, color = if (vpnTimeMillis > 0L) Green else Color.White)
             }
             Switch(checked = adsEnabled, onCheckedChange = onEnabledChange)
@@ -975,11 +968,9 @@ private fun RewardAccessCard(
             Text(if (adsController.rewardedReady) "Watch ad · Add 2 hours" else "Load / retry rewarded ad")
         }
         if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
-        Text(adsController.lastStatus, color = Color.LightGray, fontSize = 10.sp)
         if (adsEnabled && adsController.adsReady) {
-            Text(adsController.bannerStatus, color = Color.LightGray, fontSize = 10.sp)
         }
-        Text("The ad button remains available to retry loading. VPN time is added only after AdMob confirms the completed reward.", color = Color.LightGray, fontSize = 11.sp)
+        
     }
 }
 
@@ -988,9 +979,7 @@ private fun SettingsScreen(
     padding: PaddingValues,
     onPrivacyOptions: () -> Unit,
     privacyOptionsRequired: Boolean,
-    consentReady: Boolean,
-    consentStatus: String
-) {
+ ) {
     val context = LocalContext.current
     ScreenColumn(padding) {
         Text("Settings", fontSize = 23.sp, fontWeight = FontWeight.Bold)
@@ -999,10 +988,7 @@ private fun SettingsScreen(
                 OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) {
                     Text("Privacy options")
                 }
-            } else {
-                Text(if (consentReady) "No privacy options form is required for this location." else "Checking consent…", color = Color.LightGray, fontSize = 12.sp)
             }
-            Text("Consent: $consentStatus", color = Color.LightGray, fontSize = 10.sp)
             OutlinedButton(
                 onClick = {
                     runCatching {
