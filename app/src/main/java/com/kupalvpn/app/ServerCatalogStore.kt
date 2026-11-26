@@ -90,9 +90,13 @@ object ServerCatalogStore {
             val host=pick(endpoint,listOf("server_host","serverHost","server_ip","serverIp","ssh_host","sshHost","host","ip","address","hostname","domain","server","target_host"))
             val port=pick(endpoint,listOf("server_port","serverPort","ssh_port","sshPort","port","target_port")).toIntOrNull()
                 ?: endpoint.optInt("port",endpoint.optInt("server_port",endpoint.optInt("ssh_port",endpoint.optInt("target_port",0))))
-            val protocol=pick(o,listOf("protocol","type","engine","server_type","category","mode","transport","xray_format"))
+            val protocol=pick(o,listOf("protocol","type","engine","server_type","category","mode","transport"))
                 .ifBlank { pick(endpoint,listOf("protocol","type")) }
-                .ifBlank { if(pick(endpoint,listOf("ssh_host","sshHost")).isNotBlank()) "SSH" else if(o.has("xray")||o.has("xray_json")||o.has("outbounds")) "Xray" else "Server" }
+                .ifBlank {
+                    if(pick(endpoint,listOf("ssh_host","sshHost")).isNotBlank()) "SSH"
+                    else if(o.has("xray")||o.has("xray_json")||o.has("xray_link")||o.has("outbounds")) "Xray"
+                    else "Server"
+                }
             val link=pick(o,listOf("xray_link","share_link","shareLink","link","uri","profile_link","connection_uri","subscription","config_url"))
             val configObj=o.optJSONObject("config") ?: o.optJSONObject("xray") ?: o.optJSONObject("xray_config") ?: o.optJSONObject("xray_json")
             val configText=when {
