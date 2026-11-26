@@ -73,6 +73,13 @@ object ServerCatalogStore {
     internal fun parse(body:String,fetchedAt:Long=0L):ServerCatalogSnapshot {
         val root=if(body.trimStart().startsWith("[")) JSONObject().put("data",JSONArray(body)) else JSONObject(body)
         val rows=mutableListOf<CatalogServer>(); val ids=mutableSetOf<String>()
+        fun isPayloadText(value:String):Boolean {
+            val text=value.trim()
+            return text.contains("[crlf]",true) || text.contains("[host_port]",true) ||
+                text.startsWith("CONNECT ",true) || text.startsWith("GET ",true) ||
+                text.startsWith("POST ",true) || text.contains("Proxy-Connection:",true) ||
+                text.contains("HTTP/1.0",true) || text.contains("HTTP/1.1",true)
+        }
         // These collection names are taken from MobiVPN 0.0.129's catalog model.
         val groups=listOf(
             "servers_json","serversJson","server_json","servers","server_list","serverList",
@@ -150,14 +157,23 @@ object ServerCatalogStore {
                             val protocol=link.substringBefore("://").uppercase()
                             val key="link|"+link.hashCode()
                             if(ids.add(key)) rows += CatalogServer(key,protocol+" server",protocol,"",0,"",link,"","","")
-                        } else {
-                            val clean=trimmed.replace("\\s".toRegex(),"").replace('-','+').replace('_','/')
-                            if(clean.length>=16) {
-                                val decoded=runCatching { String(java.util.Base64.getDecoder().decode(clean+"=".repeat((4-clean.length%4)%4)),Charsets.UTF_8) }
-                                    .recoverCatching { String(java.util.Base64.getUrlDecoder().decode(trimmed),Charsets.UTF_8) }.getOrNull()?.trim()
-                                if(!decoded.isNullOrBlank() && (decoded.startsWith("{")||decoded.startsWith("[")||decoded.contains("://"))) walk(decoded,depth+1)
+                        } else if(isPayloadText(trimmed)) {
+                        val key="payload|"+trimmed.hashCode()
+                        if(ids.add(key)) rows += CatalogServer(key,"HTTP Payload ${rows.size+1}","SSH","",0,"","","","",trimmed)
+                    } else {
+                        val clean=trimmed.replace("\\s".toRegex(),"").replace('-','+').replace('_','/')
+                        if(clean.length>=16) {
+                            val decoded=runCatching { String(java.util.Base64.getDecoder().decode(clean+"=".repeat((4-clean.length%4)%4)),Charsets.UTF_8) }
+                                .recoverCatching { String(java.util.Base64.getUrlDecoder().decode(trimmed),Charsets.UTF_8) }.getOrNull()?.trim()
+                            if(!decoded.isNullOrBlank()) {
+                                if(decoded.startsWith("{")||decoded.startsWith("[")||decoded.contains("://")) walk(decoded,depth+1)
+                                else if(isPayloadText(decoded)) {
+                                    val key="payload|"+decoded.hashCode()
+                                    if(ids.add(key)) rows += CatalogServer(key,"HTTP Payload ${rows.size+1}","SSH","",0,"","","","",decoded)
+                                }
                             }
                         }
+                    }
                     }
                 }
             }
