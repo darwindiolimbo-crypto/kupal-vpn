@@ -62,6 +62,21 @@ object ServerCatalogStore {
                 }
                 output.toByteArray().toString(Charsets.UTF_8)
             }
+            val response=JSONObject(body)
+            if(response.optBoolean("ok",true)==false) {
+                val apiError=response.optString("error","catalog_error")
+                val apiMessage=response.optString("message","Server source unavailable")
+                val current=response.optString("current_version_name","")
+                val minimum=response.optInt("minimum_version_code",0)
+                val storeUrl=response.optString("store_url","")
+                val detail=buildString {
+                    append(apiMessage)
+                    if(current.isNotBlank()) append(" (source version $current)")
+                    if(minimum>0) append("; minimum app version code $minimum")
+                    if(storeUrl.isNotBlank()) append("; $storeUrl")
+                }
+                throw IllegalStateException("$apiError: $detail")
+            }
             val result=parse(body,System.currentTimeMillis())
             context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(BODY,body).putLong(FETCHED,result.fetchedAt).apply()
             result
