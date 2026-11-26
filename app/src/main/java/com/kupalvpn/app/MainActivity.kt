@@ -412,29 +412,53 @@ private fun HomeScreen(
         )
         if (adsEnabled && adsController.adsReady) HomeBannerAd(adsController)
 
-        SectionCard("Server profiles") {
-            Text("Select a saved carrier or server profile. Profile details stay on this device.", color = Color.LightGray, fontSize = 12.sp)
+        // MobiVPN-inspired Home layout: compact selectable server and config rows.
+        SectionCard("SERVER LIST") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Choose your connection", fontWeight = FontWeight.SemiBold)
+                    Text("${profiles.size} saved • ${serverCatalog.items.size} online entries", color = Color.LightGray, fontSize = 11.sp)
+                }
+                Text(if (checkingUpdates) "SYNCING…" else "LIVE LIST", color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+            // Saved local server profiles appear first, like the selected-server list in MobiVPN.
             profiles.forEach { profile ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                val selected = profile.id == activeProfileId
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        ProfileStore.select(context, profile.id)
+                        reloadProfiles()
+                    },
+                    colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF15382F) else Color(0x80121216)),
+                    shape = RoundedCornerShape(13.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(profile.name, fontWeight = FontWeight.SemiBold)
-                        Text("${profile.carrier} • ${profile.protocol}${if (profile.server.isBlank()) "" else " • ${profile.server}"}", color = Color.LightGray, fontSize = 10.sp)
-                    }
-                    if (profile.id == activeProfileId) {
-                        Text("ACTIVE", color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    } else {
-                        OutlinedButton(onClick = {
-                            ProfileStore.select(context, profile.id)
-                            reloadProfiles()
-                        }) { Text("Select") }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.size(34.dp).border(1.dp, if (selected) Green else GlassBorder, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) { Text(if (selected) "✓" else "◉", color = if (selected) Green else Color.LightGray, fontSize = 15.sp) }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(profile.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(
+                                listOf(profile.carrier, profile.protocol, profile.server).filter { it.isNotBlank() }.joinToString(" • "),
+                                color = Color.LightGray,
+                                fontSize = 10.sp,
+                                maxLines = 2
+                            )
+                        }
+                        Text(if (selected) "SELECTED" else "SELECT", color = if (selected) Green else Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-            Text("Add carrier profile", color = Color.LightGray, fontSize = 11.sp)
+            Text("ADD CARRIER", color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 listOf("DITO", "Smart", "TNT", "Globe", "TM").forEach { carrier ->
                     OutlinedButton(
@@ -444,88 +468,116 @@ private fun HomeScreen(
                                 "Globe", "TM" -> "internet.globe.com.ph"
                                 else -> "internet"
                             }
-                            ProfileStore.add(context, carrier, apn)
+                            val id = ProfileStore.add(context, carrier, apn)
+                            reloadProfiles()
+                            ProfileStore.select(context, id)
                             reloadProfiles()
                         },
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
-                    ) { Text(carrier, fontSize = 10.sp) }
+                        contentPadding = PaddingValues(horizontal = 3.dp, vertical = 7.dp)
+                    ) { Text(carrier, fontSize = 9.sp) }
                 }
             }
-        }
-
-        SectionCard("Server list") {
-            Text("Server entries refresh automatically from the configured server source when Home opens.", color = Color.LightGray, fontSize = 12.sp)
-            Text("Version: ${serverCatalog.version} • Updated: ${serverCatalog.updatedAt}", color = Color.LightGray, fontSize = 10.sp)
-            Button(
-                onClick = { scope.launch { checkForUpdates() } },
-                enabled = !checkingUpdates,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(if (checkingUpdates) "Checking updates…" else "Check config & server updates") }
-            if (updateStatus.isNotBlank()) {
-                Text(updateStatus, color = if (updateStatus.contains("unavailable", true)) Color(0xFFFFD27A) else Green, fontSize = 11.sp)
+            Divider(color = GlassBorder)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("PUBLIC SERVERS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.LightGray)
+                Text("${serverCatalog.items.size} found", fontSize = 10.sp, color = Color.LightGray)
             }
-            val visibleServers = serverCatalog.items.take(20)
-            if (visibleServers.isEmpty()) {
-                Text("No server entries are cached yet. Check for updates after a server source is configured.", color = Color.LightGray, fontSize = 12.sp)
+            if (serverCatalog.items.isEmpty()) {
+                Text("No public servers are cached. Check for updates to load the server list.", color = Color.LightGray, fontSize = 11.sp)
             } else {
-                visibleServers.forEach { item ->
+                serverCatalog.items.take(30).forEach { item ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = Color(0x80121216)),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Column(Modifier.fillMaxWidth().padding(11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(item.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            Text(
-                                listOf(item.protocol, item.country, if (item.host.isBlank()) "" else if (item.port > 0) "${item.host}:${item.port}" else item.host)
-                                    .filter { it.isNotBlank() }.joinToString(" • "),
-                                color = Color.LightGray,
-                                fontSize = 10.sp
-                            )
-                            if (item.description.isNotBlank()) Text(item.description, color = Color.LightGray, fontSize = 11.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(9.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(item.name, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                Text(
+                                    listOf(item.protocol, item.country, if (item.host.isBlank()) "" else if (item.port > 0) "${item.host}:${item.port}" else item.host)
+                                        .filter { it.isNotBlank() }.joinToString(" • "),
+                                    color = Color.LightGray,
+                                    fontSize = 10.sp
+                                )
+                                if (item.description.isNotBlank()) Text(item.description, color = Color.LightGray, fontSize = 10.sp)
+                            }
                             OutlinedButton(
                                 onClick = {
                                     serverActionStatus = runCatching { ServerCatalogStore.useServer(context, item) }
-                                        .getOrElse { "Could not add server: ${it.message ?: "unsupported entry"}" }
+                                        .getOrElse { "Could not select server: ${it.message ?: "unsupported entry"}" }
                                     reloadProfiles()
                                 },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("Add to profiles") }
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) { Text("USE", fontSize = 10.sp) }
                         }
                     }
                 }
             }
-            if (serverActionStatus.isNotBlank()) {
-                Text(serverActionStatus, color = if (serverActionStatus.contains("could not", true)) Color(0xFFFFD27A) else Green, fontSize = 11.sp)
-            }
-            Text("Public servers are operated by third parties. Avoid sending sensitive traffic through unknown endpoints.", color = Color(0xFFFFD27A), fontSize = 11.sp)
+            Button(
+                onClick = { scope.launch { checkForUpdates() } },
+                enabled = !checkingUpdates,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (checkingUpdates) "Updating lists…" else "Refresh server & config lists") }
+            if (updateStatus.isNotBlank()) Text(updateStatus, color = if (updateStatus.contains("unavailable", true)) Color(0xFFFFD27A) else Green, fontSize = 10.sp)
+            if (serverActionStatus.isNotBlank()) Text(serverActionStatus, color = if (serverActionStatus.contains("could not", true)) Color(0xFFFFD27A) else Green, fontSize = 11.sp)
+            Text("Third-party public servers are not operated by Kupal VPN. Avoid sensitive traffic on unknown servers.", color = Color(0xFFFFD27A), fontSize = 10.sp)
         }
 
-        SectionCard("Payloads") {
-            Text("Choose a saved SSH HTTP payload. The selected payload is saved to the active profile.", color = Color.LightGray, fontSize = 12.sp)
+        var selectedPayloadName by rememberSaveable { mutableStateOf("Default HTTP CONNECT") }
+        SectionCard("CONFIG LIST") {
+            Text("Select a payload/config template for the active SSH profile.", color = Color.LightGray, fontSize = 11.sp)
             if (payloadTemplates.isEmpty()) {
-                Text("No remote payload templates are cached yet. The built-in default remains available.", color = Color.LightGray, fontSize = 12.sp)
+                Text("No remote config templates are cached. The built-in HTTP CONNECT config is available below.", color = Color.LightGray, fontSize = 11.sp)
             } else {
                 payloadTemplates.forEach { (name, template) ->
-                    OutlinedButton(
-                        onClick = {
+                    val selected = selectedPayloadName == name
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable {
                             SshConfigStore.savePayload(context, template)
-                            payloadActionStatus = "Applied payload: $name"
+                            selectedPayloadName = name
+                            payloadActionStatus = "Selected config: $name"
                         },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(name) }
+                        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF15382F) else Color(0x80121216)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.size(30.dp).border(1.dp, if (selected) Green else GlassBorder, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) { Text(if (selected) "✓" else "≡", color = if (selected) Green else Color.LightGray) }
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text("HTTP payload • tap to apply", fontSize = 10.sp, color = Color.LightGray)
+                            }
+                            Text(if (selected) "ACTIVE" else "SELECT", color = if (selected) Green else Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
             OutlinedButton(
                 onClick = {
                     SshConfigStore.savePayload(context, SshConfigStore.DEFAULT_PAYLOAD)
-                    payloadActionStatus = "Built-in HTTP CONNECT payload restored."
+                    selectedPayloadName = "Default HTTP CONNECT"
+                    payloadActionStatus = "Built-in HTTP CONNECT config selected."
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Use default HTTP CONNECT payload") }
+            ) { Text(if (selectedPayloadName == "Default HTTP CONNECT") "✓ Default HTTP CONNECT" else "Use default HTTP CONNECT") }
             if (payloadActionStatus.isNotBlank()) Text(payloadActionStatus, color = Green, fontSize = 11.sp)
-            Text("To edit the active payload, open Config → SSH → HTTP payload.", color = Color.LightGray, fontSize = 11.sp)
+            Text("Edit the selected payload in Config → SSH → HTTP payload.", color = Color.LightGray, fontSize = 10.sp)
         }
 
         SectionCard("Quick status") {
