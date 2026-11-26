@@ -376,7 +376,7 @@ private fun HomeScreen(
                     painter = painterResource(if (previewConnected) R.drawable.connected_status_button else R.drawable.disconnected_status_button),
                     contentDescription = if (previewConnected) "VPN connected. Tap to disconnect." else if (isConnecting) "VPN is connecting." else "VPN disconnected. Tap to connect.",
                     modifier = Modifier
-                        .size(176.dp)
+                        .size(132.dp)
                         .clickable(enabled = previewConnected || (!isConnecting && vpnTimeMillis > 0L)) { onPreviewConnectionChange(!previewConnected) }
                 )
                 Text("VPN TIME  ${formatCountdown(vpnTimeMillis)}", color = if (vpnTimeMillis > 0L) Green else Color(0xFFFFD27A), fontWeight = FontWeight.SemiBold)
