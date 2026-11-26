@@ -174,7 +174,7 @@ object ServerCatalogStore {
             require(nodes.isNotEmpty()) { "No supported node found in this catalogue entry" }
             var last=""
             nodes.forEach { node ->
-                val id=ProfileStore.add(context,"Public catalogue","")
+                val id=ProfileStore.add(context,item.carrier.ifBlank { "MobiVPN catalog" },"")
                 val current=ProfileStore.profiles(context).first { it.id==id }
                 ProfileStore.update(context,current.copy(name=node.name.take(64),protocol=node.protocol,server=node.server))
                 LocalStore.writeJson(context,node.toXrayConfig())
@@ -188,14 +188,14 @@ object ServerCatalogStore {
             val obj=JSONObject(item.configJson)
             val json=if(obj.has("outbounds")) obj.toString(2) else JSONObject().put("log",JSONObject().put("loglevel","warning")).put("inbounds",JSONArray()).put("outbounds",JSONArray().put(obj)).toString(2)
             require(JSONObject(json).optJSONArray("outbounds")?.length()?.let { it>0 }==true) { "No Xray outbound in this entry" }
-            val id=ProfileStore.add(context,"Public catalogue","")
+            val id=ProfileStore.add(context,item.carrier.ifBlank { "MobiVPN catalog" },"")
             val current=ProfileStore.profiles(context).first { it.id==id }
             ProfileStore.update(context,current.copy(name=item.name.take(64),protocol=item.protocol,server=item.host))
             LocalStore.writeJson(context,json); TunnelModeStore.saveMode(context,TunnelModeStore.MODE_XRAY)
             return "Added ${item.name} as an Xray profile."
         }
         if(item.host.isNotBlank() && item.port in 1..65535 && item.protocol.contains("ssh",true)) {
-            val id=ProfileStore.add(context,"Public catalogue","")
+            val id=ProfileStore.add(context,item.carrier.ifBlank { "MobiVPN catalog" },"")
             val current=ProfileStore.profiles(context).first { it.id==id }
             ProfileStore.update(context,current.copy(name=item.name.take(64),protocol="SSH",server=item.host))
             val previous=SshConfigStore.read(context)
