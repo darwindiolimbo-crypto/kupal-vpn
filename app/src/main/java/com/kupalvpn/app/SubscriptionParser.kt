@@ -1,6 +1,5 @@
 package com.kupalvpn.app
 
-import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Base64
 
