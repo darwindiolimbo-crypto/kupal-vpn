@@ -1,4 +1,5 @@
 name: Android Debug APK
+# Re-run requested by maintainer; no build behavior changed.
 
 on:
   push:
