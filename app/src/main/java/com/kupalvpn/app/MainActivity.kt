@@ -976,6 +976,53 @@ private fun RewardAccessCard(
 }
 
 @Composable
+private fun ConnectionLogsScreen(padding: PaddingValues) {
+    val context = LocalContext.current
+    var entries by remember { mutableStateOf(ConnectionLogStore.read(context)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            entries = ConnectionLogStore.read(context)
+            delay(1_000L)
+        }
+    }
+    ScreenColumn(padding) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("CONNECTION LOGS", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            OutlinedButton(onClick = { ConnectionLogStore.clear(context); entries = emptyList() }) { Text("CLEAR") }
+        }
+        if (entries.isEmpty()) {
+            SectionCard("LOGS") { Text("No connection events yet.", color = Color.LightGray, fontSize = 12.sp) }
+        } else {
+            entries.forEach { entry ->
+                val stateColor = when (entry.state) {
+                    "CONNECTED" -> Green
+                    "ERROR" -> Color(0xFFFF7777)
+                    "CONNECTING" -> Color(0xFFFFD27A)
+                    else -> Color.LightGray
+                }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Panel),
+                    shape = RoundedCornerShape(13.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(entry.state, color = stateColor, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            Text(java.text.SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(java.util.Date(entry.timestamp)), color = Color.Gray, fontSize = 10.sp)
+                        }
+                        Text(entry.message, color = Color.White, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsScreen(
     padding: PaddingValues,
     onPrivacyOptions: () -> Unit,
