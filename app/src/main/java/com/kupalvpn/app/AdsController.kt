@@ -45,6 +45,7 @@ class AdsController(private val activity: Activity) {
         private set
     var consentStatus: String by mutableStateOf("Checking")
         private set
+    @Volatile private var consentCanRequestAds = false
 
     private fun onMain(block: () -> Unit) {
         val action = Runnable {
@@ -111,7 +112,8 @@ class AdsController(private val activity: Activity) {
                                         }
                                         // Do not initialize or request ads until the required
                                         // consent form has completed for this launch.
-                                        if (consentInformation.canRequestAds()) {
+                                        consentCanRequestAds = consentInformation.canRequestAds()
+                                        if (consentCanRequestAds) {
                                             mainHandler.removeCallbacks(consentRetry)
                                             consentRetryDelayMs = 30_000L
                                             if (!initialized) initializeAds() else loadRewardedAd()
@@ -139,7 +141,8 @@ class AdsController(private val activity: Activity) {
                                     com.google.android.ump.ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED
                             consentStatus = "Update failed"
                             lastStatus = "Consent update failed: ${requestError.message}"
-                            if (consentInformation.canRequestAds()) initializeAds()
+                            consentCanRequestAds = consentInformation.canRequestAds()
+                            if (consentCanRequestAds) initializeAds()
                             else scheduleConsentRetry()
                         }
                     }
@@ -191,9 +194,9 @@ class AdsController(private val activity: Activity) {
     }
 
     private fun loadRewardedAd() {
-        if (!initialized || rewardedAd != null || rewardedLoading || activity.isFinishing || activity.isDestroyed) return
+        if (!consentCanRequestAds || !initialized || rewardedAd != null || rewardedLoading || activity.isFinishing || activity.isDestroyed) return
         onMain {
-            if (!initialized || rewardedAd != null || rewardedLoading || activity.isFinishing || activity.isDestroyed) return@onMain
+            if (!consentCanRequestAds || !initialized || rewardedAd != null || rewardedLoading || activity.isFinishing || activity.isDestroyed) return@onMain
             mainHandler.removeCallbacks(rewardedRetry)
             rewardedLoading = true
             lastStatus = "Loading rewarded video…"
@@ -249,6 +252,10 @@ class AdsController(private val activity: Activity) {
             if (!LocalStore.adsEnabled(activity)) return "Rewarded ads are paused in Settings"
             val cooldown = remainingMillis()
             if (cooldown > 0L) return "Wait ${(cooldown + 999L) / 1000L} seconds before the next ad"
+            if (!consentCanRequestAds) {
+                requestConsentAndInitialize()
+                return "Waiting for advertising consent"
+            }
             if (!initialized) {
                 if (!initializeRequested) requestConsentAndInitialize()
                 return "AdMob is initializing. Please retry shortly."
@@ -333,14 +340,16 @@ class AdsController(private val activity: Activity) {
                         privacyOptionsRequired =
                             information.privacyOptionsRequirementStatus ==
                                 com.google.android.ump.ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED
+                        consentCanRequestAds = information.canRequestAds()
                         if (formError != null) {
                             lastStatus = "Privacy options: ${formError.message}"
-                        } else if (information.canRequestAds()) {
+                        } else if (consentCanRequestAds) {
                             lastStatus = "Privacy choices saved"
                             if (!initialized) initializeAds() else loadRewardedAd()
                         } else {
                             rewardedAd = null
                             rewardedReady = false
+                            rewardedLoading = false
                             adsReady = false
                             lastStatus = "Ads paused by your privacy choices"
                         }
