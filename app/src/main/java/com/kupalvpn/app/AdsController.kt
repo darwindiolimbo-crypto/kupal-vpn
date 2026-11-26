@@ -39,6 +39,12 @@ class AdsController(private val activity: Activity) {
         private set
     var rewardedReady: Boolean by mutableStateOf(false)
         private set
+    var consentReady: Boolean by mutableStateOf(false)
+        private set
+    var privacyOptionsRequired: Boolean by mutableStateOf(false)
+        private set
+    var consentStatus: String by mutableStateOf("Checking")
+        private set
 
     private fun onMain(block: () -> Unit) {
         val action = Runnable {
@@ -89,20 +95,26 @@ class AdsController(private val activity: Activity) {
                     {
                         onMain {
                             consentRequestInFlight = false
-                            // A previous valid consent choice can already permit ads.
-                            // Start the SDK now; a newly required form is still shown below.
-                            if (consentInformation.canRequestAds()) initializeAds()
+                            privacyOptionsRequired =
+                                consentInformation.privacyOptionsRequirementStatus ==
+                                    com.google.android.ump.ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED
+                            consentStatus = "Updated"
                             try {
                                 UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity) { formError ->
                                     onMain {
+                                        consentReady = true
                                         if (formError != null) {
+                                            consentStatus = "Form error"
                                             lastStatus = "Consent form: ${formError.message}"
+                                        } else {
+                                            consentStatus = "Ready"
                                         }
+                                        // Do not initialize or request ads until the required
+                                        // consent form has completed for this launch.
                                         if (consentInformation.canRequestAds()) {
                                             mainHandler.removeCallbacks(consentRetry)
                                             consentRetryDelayMs = 30_000L
-                                            if (!initialized) initializeAds()
-                                            else if (formError == null) lastStatus = "Privacy checked; ads are permitted"
+                                            if (!initialized) initializeAds() else loadRewardedAd()
                                         } else {
                                             lastStatus = "Consent is required before ads can be requested"
                                             scheduleConsentRetry()
@@ -110,6 +122,8 @@ class AdsController(private val activity: Activity) {
                                     }
                                 }
                             } catch (error: Throwable) {
+                                consentReady = true
+                                consentStatus = "Unavailable"
                                 lastStatus = "Consent form unavailable: ${error.message ?: error.javaClass.simpleName}"
                                 if (consentInformation.canRequestAds()) initializeAds()
                                 else scheduleConsentRetry()
@@ -119,6 +133,11 @@ class AdsController(private val activity: Activity) {
                     { requestError ->
                         onMain {
                             consentRequestInFlight = false
+                            consentReady = true
+                            privacyOptionsRequired =
+                                consentInformation.privacyOptionsRequirementStatus ==
+                                    com.google.android.ump.ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED
+                            consentStatus = "Update failed"
                             lastStatus = "Consent update failed: ${requestError.message}"
                             if (consentInformation.canRequestAds()) initializeAds()
                             else scheduleConsentRetry()
@@ -127,6 +146,8 @@ class AdsController(private val activity: Activity) {
                 )
             } catch (error: Throwable) {
                 consentRequestInFlight = false
+                consentReady = true
+                consentStatus = "Unavailable"
                 lastStatus = "Privacy consent unavailable: ${error.message ?: error.javaClass.simpleName}"
                 scheduleConsentRetry()
             }
@@ -297,9 +318,33 @@ class AdsController(private val activity: Activity) {
             return
         }
         onMain {
+            if (!consentReady) {
+                lastStatus = "Privacy settings are still loading"
+                return@onMain
+            }
+            if (!privacyOptionsRequired) {
+                lastStatus = "No additional privacy options are required for this location"
+                return@onMain
+            }
             try {
                 UserMessagingPlatform.showPrivacyOptionsForm(activity) { formError ->
-                    onMain { lastStatus = formError?.message ?: "Privacy options closed" }
+                    onMain {
+                        val information = UserMessagingPlatform.getConsentInformation(activity)
+                        privacyOptionsRequired =
+                            information.privacyOptionsRequirementStatus ==
+                                com.google.android.ump.ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED
+                        if (formError != null) {
+                            lastStatus = "Privacy options: ${formError.message}"
+                        } else if (information.canRequestAds()) {
+                            lastStatus = "Privacy choices saved"
+                            if (!initialized) initializeAds() else loadRewardedAd()
+                        } else {
+                            rewardedAd = null
+                            rewardedReady = false
+                            adsReady = false
+                            lastStatus = "Ads paused by your privacy choices"
+                        }
+                    }
                 }
             } catch (error: Throwable) {
                 lastStatus = "Privacy options unavailable: ${error.message ?: error.javaClass.simpleName}"
