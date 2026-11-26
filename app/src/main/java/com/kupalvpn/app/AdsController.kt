@@ -198,7 +198,7 @@ class AdsController(private val activity: Activity) {
                                 rewardedLoading = false
                                 rewardedAd = null
                                 rewardedReady = false
-                                lastStatus = "Rewarded ad unavailable: ${error.message} (code ${error.code}); retry scheduled"
+                                lastStatus = "Rewarded ad unavailable: ${error.message} (code ${error.code}, domain ${error.domain}); retry scheduled"
                                 scheduleRewardedRetry()
                             }
                         }
