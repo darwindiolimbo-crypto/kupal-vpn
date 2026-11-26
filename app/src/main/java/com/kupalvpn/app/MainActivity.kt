@@ -987,6 +987,9 @@ private fun RewardAccessCard(
             color = Color.LightGray,
             fontSize = 12.sp
         )
+        if (adsController.bannerStatus != "Banner not requested") {
+            Text(adsController.bannerStatus, color = Color.Gray, fontSize = 10.sp)
+        }
         Button(onClick = onShowAd, enabled = adsEnabled && cooldownFinished, modifier = Modifier.fillMaxWidth()) {
             Text(if (adsController.rewardedReady) "Watch ad · Add 2 hours" else "Load / retry rewarded ad")
         }
