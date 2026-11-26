@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
@@ -216,10 +217,11 @@ private fun KupalVpnApp(
         containerColor = Navy,
         bottomBar = {
             NavigationBar(containerColor = Color(0xD90B0B0E)) {
-                listOf("Home", "Config", "Settings").forEach { destination ->
+                listOf("Home", "Config", "Logs", "Settings").forEach { destination ->
                     val icon = when (destination) {
                         "Home" -> Icons.Default.Home
                         "Config" -> Icons.Default.Code
+                        "Logs" -> Icons.Default.List
                         else -> Icons.Default.Settings
                     }
                     NavigationBarItem(
@@ -257,6 +259,7 @@ private fun KupalVpnApp(
                 }
             )
             "Config" -> ConfigScreen(padding = padding)
+            "Logs" -> ConnectionLogsScreen(padding = padding)
             else -> SettingsScreen(
                 padding = padding,
                 onPrivacyOptions = onPrivacyOptions,
