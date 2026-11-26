@@ -968,8 +968,6 @@ private fun RewardAccessCard(
             Text(if (adsController.rewardedReady) "Watch ad · Add 2 hours" else "Load / retry rewarded ad")
         }
         if (actionMessage.isNotBlank()) Text(actionMessage, color = Green, fontSize = 12.sp)
-        if (adsEnabled && adsController.adsReady) {
-        }
         
     }
 }
