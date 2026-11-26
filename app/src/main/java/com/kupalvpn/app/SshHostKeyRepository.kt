@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Base64
 import com.jcraft.jsch.HostKey
 import com.jcraft.jsch.HostKeyRepository
-import com.jcraft.jsch.JSchException
 import com.jcraft.jsch.UserInfo
 
 /**
