@@ -177,7 +177,7 @@ class AdsController(private val activity: Activity) {
                         onMain {
                             initialized = true
                             adsReady = true
-                            val adapters = MobileAds.getInitializationStatus().adapterStatusMap
+                            val adapters = MobileAds.getInitializationStatus()?.adapterStatusMap.orEmpty()
                             val adapterSummary = adapters.entries.joinToString { (name, status) ->
                                 "$name: ${status.initializationState} (${status.latency}ms)"
                             }
