@@ -257,7 +257,13 @@ private fun KupalVpnApp(
                 }
             )
             "Config" -> ConfigScreen(padding = padding)
-            else -> SettingsScreen(padding = padding, onPrivacyOptions = onPrivacyOptions)
+            else -> SettingsScreen(
+                padding = padding,
+                onPrivacyOptions = onPrivacyOptions,
+                privacyOptionsRequired = adsController.privacyOptionsRequired,
+                consentReady = adsController.consentReady,
+                consentStatus = adsController.consentStatus
+            )
         }
     }
 }
@@ -345,7 +351,6 @@ private fun HomeScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("KUPAL VPN", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.4.sp)
-                Text("Private connection • servers and payloads", color = Color.LightGray, fontSize = 12.sp)
             }
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF10271F)),
@@ -387,11 +392,6 @@ private fun HomeScreen(
                 ) {
                     Text(if (previewConnected) "Disconnect" else if (isConnecting) "Connecting…" else if (vpnTimeMillis > 0L) "Connect VPN" else "Earn VPN time to connect")
                 }
-                Text(
-                    "Choose a saved server below, then configure its SSH or Xray connection in Config.",
-                    color = Color.LightGray,
-                    fontSize = 11.sp
-                )
             }
         }
 
@@ -420,8 +420,7 @@ private fun HomeScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Choose your connection", fontWeight = FontWeight.SemiBold)
-                    Text("${profiles.size} saved • ${serverCatalog.items.size} servers", color = Color.LightGray, fontSize = 11.sp)
+                    Text("${profiles.size} profiles • ${serverCatalog.items.size} servers", color = Color.LightGray, fontSize = 11.sp)
                 }
                 Text(if (checkingUpdates) "SYNCING…" else "LIVE LIST", color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
@@ -575,17 +574,11 @@ private fun HomeScreen(
             if (payloadActionStatus.isNotBlank()) Text(payloadActionStatus, color = Green, fontSize = 11.sp)
         }
 
-        SectionCard("Quick status") {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Engines", color = Color.LightGray)
-                Text("SSH • Xray", fontWeight = FontWeight.SemiBold)
-            }
-            Text("Rewarded time is saved on this device and is deducted only while the VPN is connected.", color = Color.LightGray, fontSize = 12.sp)
-        }
     }
 }
 
 private const val HOME_BANNER_AD_UNIT_ID = "ca-app-pub-9471897591250086/8384504352"
+private const val PRIVACY_POLICY_URL = "https://github.com/darwindiolimbo-crypto/kupal-vpn/blob/main/PRIVACY_POLICY.md"
 
 @Composable
 private fun HomeBannerAd(adsController: AdsController) {
@@ -933,23 +926,31 @@ private fun RewardAccessCard(
 @Composable
 private fun SettingsScreen(
     padding: PaddingValues,
-    onPrivacyOptions: () -> Unit
+    onPrivacyOptions: () -> Unit,
+    privacyOptionsRequired: Boolean,
+    consentReady: Boolean,
+    consentStatus: String
 ) {
+    val context = LocalContext.current
     ScreenColumn(padding) {
         Text("Settings", fontSize = 23.sp, fontWeight = FontWeight.Bold)
-        Text("App preferences, privacy and remote configuration.", color = Color.LightGray, fontSize = 13.sp)
         SectionCard("Privacy") {
-            Text("Manage consent and advertising privacy choices.", color = Color.LightGray, fontSize = 12.sp)
-            OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) {
-                Text("Privacy & consent options")
+            if (privacyOptionsRequired) {
+                OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) {
+                    Text("Privacy options")
+                }
+            } else {
+                Text(if (consentReady) "No privacy options form is required for this location." else "Checking consent…", color = Color.LightGray, fontSize = 12.sp)
             }
-        }
-        SectionCard("Configuration updates") {
-            Text("Config and server templates update automatically from their configured sources when Home opens. Use the Check config & server updates button on Home to run a manual check.", color = Color.LightGray, fontSize = 12.sp)
-        }
-        SectionCard("About Kupal VPN") {
-            Text("Premium glass interface • SSH payload • Xray profiles", color = Color.LightGray, fontSize = 12.sp)
-            Text("Never publish your SSH password, private key, or Xray UUID in the public config catalog.", color = Color(0xFFFFD27A), fontSize = 11.sp)
+            Text("Consent: $consentStatus", color = Color.LightGray, fontSize = 10.sp)
+            OutlinedButton(
+                onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(PRIVACY_POLICY_URL)))
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Privacy policy") }
         }
     }
 }
