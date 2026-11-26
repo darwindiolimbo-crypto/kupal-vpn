@@ -59,6 +59,7 @@ class KupalVpnService : VpnService() {
                 } catch (error: Throwable) {
                     Log.e(TAG, "Could not start foreground VPN service", error)
                     setState("error: ${error.message ?: error.javaClass.simpleName}")
+                    ConnectionLogStore.add(this, "ERROR", error.message ?: "Foreground service startup failed")
                     starting.set(false)
                     stopSelf(startId)
                     return START_NOT_STICKY
@@ -75,6 +76,7 @@ class KupalVpnService : VpnService() {
                 }
                 if (problem != null) {
                     setState("error: $problem")
+                    ConnectionLogStore.add(this, "ERROR", problem)
                     starting.set(false)
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf(startId)
@@ -103,6 +105,7 @@ class KupalVpnService : VpnService() {
             } else null
             if (mode != TunnelModeStore.MODE_SSH) XrayConfigValidator.validate(configText)
             setState("connecting")
+            ConnectionLogStore.add(this, "CONNECTING", "Starting VPN tunnel")
             // Resolve physical SSH/proxy endpoints while Android is still using the
             // normal mobile/Wi-Fi network. Once the VPN TUN routes 0.0.0.0/0, these
             // lookups can otherwise be sent into the tunnel before SOCKS is ready.
@@ -147,12 +150,15 @@ class KupalVpnService : VpnService() {
             check(!stopRequested) { "Connection cancelled" }
             if (!LocalStore.startVpnTime(this)) error("VPN time credit expired before connection")
             setState("connected")
+            ConnectionLogStore.add(this, "CONNECTED", "VPN tunnel established")
             updateNotification("Kupal VPN connected · rewarded time active")
             vpnTimeHandler.removeCallbacks(vpnTimeTick)
             vpnTimeHandler.postDelayed(vpnTimeTick, 1_000L)
         } catch (error: Throwable) {
             Log.e(TAG, "Unable to start VPN tunnel", error)
-            setState(if (stopRequested) "disconnected" else "error: ${error.message ?: error.javaClass.simpleName}")
+            val failureMessage = error.message ?: error.javaClass.simpleName
+            setState(if (stopRequested) "disconnected" else "error: $failureMessage")
+            ConnectionLogStore.add(this, if (stopRequested) "DISCONNECTED" else "ERROR", failureMessage)
             runCatching { if (coreStarted) invokeCore("stopXray") }
             coreStarted = false
             runCatching { coreClass?.methods?.firstOrNull { it.name == "resetDNS" && it.parameterTypes.isEmpty() }?.invoke(null) }
@@ -239,6 +245,7 @@ class KupalVpnService : VpnService() {
             tun?.close()
             tun = null
             setState(if (reason.isNullOrBlank()) "disconnected" else "error: $reason")
+            ConnectionLogStore.add(this, if (reason.isNullOrBlank()) "DISCONNECTED" else "ERROR", reason ?: "VPN disconnected")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
