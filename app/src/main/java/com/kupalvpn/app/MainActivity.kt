@@ -100,8 +100,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             KupalVpnTheme {
                 KupalVpnApp(
-                    adsController = adsController,
-                    onPrivacyOptions = { adsController.showPrivacyOptions() }
+                    adsController = adsController
                 )
             }
         }
@@ -138,8 +137,7 @@ private fun KupalVpnTheme(content: @Composable () -> Unit) {
 
 @Composable
 private fun KupalVpnApp(
-    adsController: AdsController,
-    onPrivacyOptions: () -> Unit
+    adsController: AdsController
 ) {
     val context = LocalContext.current
     var tab by rememberSaveable { mutableStateOf("Home") }
@@ -260,11 +258,7 @@ private fun KupalVpnApp(
             )
             "Config" -> ConfigScreen(padding = padding)
             "Logs" -> ConnectionLogsScreen(padding = padding)
-            else -> SettingsScreen(
-                padding = padding,
-                onPrivacyOptions = onPrivacyOptions,
-                privacyOptionsRequired = adsController.privacyOptionsRequired,
-             )
+            else -> SettingsScreen(padding = padding)
         }
     }
 }
@@ -421,7 +415,23 @@ private fun HomeScreen(
         if (adsEnabled && adsController.adsReady) HomeBannerAd(adsController)
 
         // MobiVPN-inspired Home layout: compact selectable server and config rows.
+        var serverListExpanded by rememberSaveable { mutableStateOf(false) }
         SectionCard("SERVER LIST") {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { serverListExpanded = !serverListExpanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    profiles.firstOrNull { it.id == activeProfileId }?.name ?: "Choose server",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(if (serverListExpanded) "▲" else "▼", color = Green, fontSize = 12.sp)
+            }
+            if (serverListExpanded) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -545,10 +555,21 @@ private fun HomeScreen(
             ) { Text(if (checkingUpdates) "Updating lists…" else "Refresh server & config lists") }
             if (updateStatus.isNotBlank()) Text(updateStatus, color = if (updateStatus.contains("unavailable", true)) Color(0xFFFFD27A) else Green, fontSize = 10.sp)
             if (serverActionStatus.isNotBlank()) Text(serverActionStatus, color = if (serverActionStatus.contains("could not", true)) Color(0xFFFFD27A) else Green, fontSize = 11.sp)
+            }
         }
 
         var selectedPayloadName by rememberSaveable { mutableStateOf("Default HTTP CONNECT") }
+        var configListExpanded by rememberSaveable { mutableStateOf(false) }
         SectionCard("CONFIG LIST") {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { configListExpanded = !configListExpanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(selectedPayloadName, color = Green, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(if (configListExpanded) "▲" else "▼", color = Green, fontSize = 12.sp)
+            }
+            if (configListExpanded) {
             payloadTemplates.forEach { (name, template) ->
                     val selected = selectedPayloadName == name
                     Card(
@@ -633,13 +654,12 @@ private fun HomeScreen(
                 modifier = Modifier.fillMaxWidth()
             ) { Text(if (selectedPayloadName == "Default HTTP CONNECT") "✓ Default HTTP CONNECT" else "Use default HTTP CONNECT") }
             if (payloadActionStatus.isNotBlank()) Text(payloadActionStatus, color = Green, fontSize = 11.sp)
-        }
+            }
 
     }
 }
 
 private const val HOME_BANNER_AD_UNIT_ID = "ca-app-pub-9471897591250086/8384504352"
-private const val PRIVACY_POLICY_URL = "https://github.com/darwindiolimbo-crypto/kupal-vpn/blob/main/PRIVACY_POLICY.md"
 
 @Composable
 private fun HomeBannerAd(adsController: AdsController) {
@@ -1023,32 +1043,11 @@ private fun ConnectionLogsScreen(padding: PaddingValues) {
 }
 
 @Composable
-private fun SettingsScreen(
-    padding: PaddingValues,
-    onPrivacyOptions: () -> Unit,
-    privacyOptionsRequired: Boolean,
- ) {
-    val context = LocalContext.current
+private fun SettingsScreen(padding: PaddingValues) {
     ScreenColumn(padding) {
         Text("Settings", fontSize = 23.sp, fontWeight = FontWeight.Bold)
-        SectionCard("Privacy") {
-            if (privacyOptionsRequired) {
-                OutlinedButton(onClick = onPrivacyOptions, modifier = Modifier.fillMaxWidth()) {
-                    Text("Privacy options")
-                }
-            }
-            OutlinedButton(
-                onClick = {
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(PRIVACY_POLICY_URL)))
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Privacy policy") }
-        }
     }
 }
-
 private fun formatCountdown(milliseconds: Long): String {
     val seconds = (milliseconds / 1_000L).coerceAtLeast(0L)
     val hours = seconds / 3_600
