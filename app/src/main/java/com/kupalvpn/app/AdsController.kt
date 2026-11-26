@@ -75,11 +75,17 @@ class AdsController(private val activity: Activity) {
     }
 
     fun reportBannerLoaded() {
-        onMain { bannerStatus = "Banner ad loaded" }
+        onMain {
+            bannerStatus = "Banner ad loaded"
+            android.util.Log.i("KupalVPN-Ads", bannerStatus)
+        }
     }
 
     fun reportBannerFailed(error: LoadAdError) {
-        onMain { bannerStatus = "Banner unavailable: ${error.message} (code ${error.code})" }
+        onMain {
+            bannerStatus = "Banner unavailable: ${error.message} (code ${error.code})"
+            android.util.Log.e("KupalVPN-Ads", bannerStatus)
+        }
     }
 
     fun requestConsentAndInitialize() {
@@ -171,7 +177,16 @@ class AdsController(private val activity: Activity) {
                         onMain {
                             initialized = true
                             adsReady = true
-                            lastStatus = "AdMob initialized; loading rewarded video…"
+                            val adapters = MobileAds.getInitializationStatus().adapterStatusMap
+                            val adapterSummary = adapters.entries.joinToString { (name, status) ->
+                                "$name: ${status.initializationState} (${status.latency}ms)"
+                            }
+                            android.util.Log.i("KupalVPN-Ads", "AdMob initialized. $adapterSummary")
+                            lastStatus = if (adapters.isEmpty()) {
+                                "AdMob initialized; no adapters reported"
+                            } else {
+                                "AdMob ready; loading rewarded video"
+                            }
                             loadRewardedAd()
                         }
                     }
@@ -223,7 +238,8 @@ class AdsController(private val activity: Activity) {
                                 rewardedLoading = false
                                 rewardedAd = null
                                 rewardedReady = false
-                                lastStatus = "Rewarded ad unavailable: ${error.message} (code ${error.code}, domain ${error.domain}); retry scheduled"
+                                lastStatus = "Rewarded ad unavailable: ${error.message} (code ${error.code}, domain ${error.domain}, response ${error.responseInfo}); retry scheduled"
+                                android.util.Log.e("KupalVPN-Ads", lastStatus)
                                 scheduleRewardedRetry()
                             }
                         }
@@ -234,6 +250,7 @@ class AdsController(private val activity: Activity) {
                 rewardedAd = null
                 rewardedReady = false
                 lastStatus = "Rewarded ad request failed: ${error.message ?: error.javaClass.simpleName}; retry scheduled"
+                android.util.Log.e("KupalVPN-Ads", lastStatus, error)
                 scheduleRewardedRetry()
             }
         }
