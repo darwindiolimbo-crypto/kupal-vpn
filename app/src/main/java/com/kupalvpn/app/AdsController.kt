@@ -127,7 +127,8 @@ class AdsController(private val activity: Activity) {
                                 consentReady = true
                                 consentStatus = "Unavailable"
                                 lastStatus = "Consent form unavailable: ${error.message ?: error.javaClass.simpleName}"
-                                if (consentInformation.canRequestAds()) initializeAds()
+                                consentCanRequestAds = consentInformation.canRequestAds()
+                                if (consentCanRequestAds) initializeAds()
                                 else scheduleConsentRetry()
                             }
                         }
