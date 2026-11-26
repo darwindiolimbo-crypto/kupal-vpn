@@ -304,8 +304,15 @@ private fun HomeScreen(
     var updateStatus by rememberSaveable { mutableStateOf("Checking GitHub config and server sources…") }
     var serverActionStatus by rememberSaveable { mutableStateOf("") }
     var payloadActionStatus by rememberSaveable { mutableStateOf("") }
+    var serverSearch by rememberSaveable { mutableStateOf("") }
     var profiles by remember { mutableStateOf(ProfileStore.profiles(context)) }
     var activeProfileId by remember { mutableStateOf(ProfileStore.activeProfileId(context)) }
+    val filteredServers = serverCatalog.items.filter { item ->
+        serverSearch.isBlank() || listOf(item.name,item.protocol,item.host,item.country,item.carrier,item.payloadName)
+            .any { it.contains(serverSearch.trim(), ignoreCase = true) }
+    }
+    val mobivpnPayloads = serverCatalog.items.filter { it.payloadTemplate.isNotBlank() }
+    val mobivpnXrayItems = serverCatalog.items.filter { it.shareText.isNotBlank() || it.configJson.isNotBlank() }
 
     suspend fun checkForUpdates() {
         if (checkingUpdates) return
@@ -483,13 +490,22 @@ private fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("PUBLIC SERVERS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.LightGray)
-                Text("${serverCatalog.items.size} found", fontSize = 10.sp, color = Color.LightGray)
+                Text("MOBIVPN SERVERS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.LightGray)
+                Text("${filteredServers.size} / ${serverCatalog.items.size}", fontSize = 10.sp, color = Color.LightGray)
             }
+            OutlinedTextField(
+                value = serverSearch,
+                onValueChange = { serverSearch = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Search server, carrier, country or protocol") }
+            )
             if (serverCatalog.items.isEmpty()) {
-                Text("No public servers are cached. Check for updates to load the server list.", color = Color.LightGray, fontSize = 11.sp)
+                Text("MobiVPN server catalog is not available yet. Refresh to retry.", color = Color.LightGray, fontSize = 11.sp)
+            } else if (filteredServers.isEmpty()) {
+                Text("No matching servers.", color = Color.LightGray, fontSize = 11.sp)
             } else {
-                serverCatalog.items.take(30).forEach { item ->
+                filteredServers.take(60).forEach { item ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = Color(0x80121216)),
@@ -503,7 +519,7 @@ private fun HomeScreen(
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(item.name, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                                 Text(
-                                    listOf(item.protocol, item.country, if (item.host.isBlank()) "" else if (item.port > 0) "${item.host}:${item.port}" else item.host)
+                                    listOf(item.protocol, item.carrier, item.country, if (item.host.isBlank()) "" else if (item.port > 0) "${item.host}:${item.port}" else item.host)
                                         .filter { it.isNotBlank() }.joinToString(" • "),
                                     color = Color.LightGray,
                                     fontSize = 10.sp
@@ -532,10 +548,7 @@ private fun HomeScreen(
 
         var selectedPayloadName by rememberSaveable { mutableStateOf("Default HTTP CONNECT") }
         SectionCard("CONFIG LIST") {
-            if (payloadTemplates.isEmpty()) {
-                Text("No remote config templates are cached. The built-in HTTP CONNECT config is available below.", color = Color.LightGray, fontSize = 11.sp)
-            } else {
-                payloadTemplates.forEach { (name, template) ->
+            payloadTemplates.forEach { (name, template) ->
                     val selected = selectedPayloadName == name
                     Card(
                         modifier = Modifier.fillMaxWidth().clickable {
@@ -561,7 +574,54 @@ private fun HomeScreen(
                             Text(if (selected) "ACTIVE" else "SELECT", color = if (selected) Green else Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         }
                     }
+            }
+            mobivpnPayloads.forEach { item ->
+                val name = item.payloadName.ifBlank { item.name }
+                val selected = selectedPayloadName == name
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        SshConfigStore.savePayload(context, item.payloadTemplate)
+                        selectedPayloadName = name
+                        payloadActionStatus = "Selected MobiVPN payload: $name"
+                    },
+                    colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF15382F) else Color(0x80121216)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("SSH • HTTP payload", fontSize = 10.sp, color = Color.LightGray)
+                        }
+                        Text(if (selected) "ACTIVE" else "SELECT", color = if (selected) Green else Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
+            }
+            mobivpnXrayItems.forEach { item ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(item.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Xray • ${item.protocol}", fontSize = 10.sp, color = Color.LightGray)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            serverActionStatus = runCatching { ServerCatalogStore.useServer(context, item) }
+                                .getOrElse { "Could not import config: ${it.message ?: "unsupported entry"}" }
+                            reloadProfiles()
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) { Text("IMPORT", fontSize = 9.sp) }
+                }
+            }
+            if (payloadTemplates.isEmpty() && mobivpnPayloads.isEmpty() && mobivpnXrayItems.isEmpty()) {
+                Text("No remote configs cached. The built-in HTTP CONNECT template is available below.", color = Color.LightGray, fontSize = 11.sp)
             }
             OutlinedButton(
                 onClick = {
