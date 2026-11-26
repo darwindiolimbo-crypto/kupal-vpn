@@ -376,7 +376,7 @@ private fun HomeScreen(
                     painter = painterResource(if (previewConnected) R.drawable.connected_status_button else R.drawable.disconnected_status_button),
                     contentDescription = if (previewConnected) "VPN connected. Tap to disconnect." else if (isConnecting) "VPN is connecting." else "VPN disconnected. Tap to connect.",
                     modifier = Modifier
-                        .size(132.dp)
+                        .size(112.dp)
                         .clickable(enabled = previewConnected || (!isConnecting && vpnTimeMillis > 0L)) { onPreviewConnectionChange(!previewConnected) }
                 )
                 Text("VPN TIME  ${formatCountdown(vpnTimeMillis)}", color = if (vpnTimeMillis > 0L) Green else Color(0xFFFFD27A), fontWeight = FontWeight.SemiBold)
@@ -421,7 +421,7 @@ private fun HomeScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Choose your connection", fontWeight = FontWeight.SemiBold)
-                    Text("${profiles.size} saved • ${serverCatalog.items.size} online entries", color = Color.LightGray, fontSize = 11.sp)
+                    Text("${profiles.size} saved • ${serverCatalog.items.size} servers", color = Color.LightGray, fontSize = 11.sp)
                 }
                 Text(if (checkingUpdates) "SYNCING…" else "LIVE LIST", color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
@@ -509,7 +509,6 @@ private fun HomeScreen(
                                     color = Color.LightGray,
                                     fontSize = 10.sp
                                 )
-                                if (item.description.isNotBlank()) Text(item.description, color = Color.LightGray, fontSize = 10.sp)
                             }
                             OutlinedButton(
                                 onClick = {
@@ -530,12 +529,10 @@ private fun HomeScreen(
             ) { Text(if (checkingUpdates) "Updating lists…" else "Refresh server & config lists") }
             if (updateStatus.isNotBlank()) Text(updateStatus, color = if (updateStatus.contains("unavailable", true)) Color(0xFFFFD27A) else Green, fontSize = 10.sp)
             if (serverActionStatus.isNotBlank()) Text(serverActionStatus, color = if (serverActionStatus.contains("could not", true)) Color(0xFFFFD27A) else Green, fontSize = 11.sp)
-            Text("Third-party public servers are not operated by Kupal VPN. Avoid sensitive traffic on unknown servers.", color = Color(0xFFFFD27A), fontSize = 10.sp)
         }
 
         var selectedPayloadName by rememberSaveable { mutableStateOf("Default HTTP CONNECT") }
         SectionCard("CONFIG LIST") {
-            Text("Select a payload/config template for the active SSH profile.", color = Color.LightGray, fontSize = 11.sp)
             if (payloadTemplates.isEmpty()) {
                 Text("No remote config templates are cached. The built-in HTTP CONNECT config is available below.", color = Color.LightGray, fontSize = 11.sp)
             } else {
@@ -561,7 +558,6 @@ private fun HomeScreen(
                             ) { Text(if (selected) "✓" else "≡", color = if (selected) Green else Color.LightGray) }
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                Text("HTTP payload • tap to apply", fontSize = 10.sp, color = Color.LightGray)
                             }
                             Text(if (selected) "ACTIVE" else "SELECT", color = if (selected) Green else Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         }
@@ -577,7 +573,6 @@ private fun HomeScreen(
                 modifier = Modifier.fillMaxWidth()
             ) { Text(if (selectedPayloadName == "Default HTTP CONNECT") "✓ Default HTTP CONNECT" else "Use default HTTP CONNECT") }
             if (payloadActionStatus.isNotBlank()) Text(payloadActionStatus, color = Green, fontSize = 11.sp)
-            Text("Edit the selected payload in Config → SSH → HTTP payload.", color = Color.LightGray, fontSize = 10.sp)
         }
 
         SectionCard("Quick status") {
