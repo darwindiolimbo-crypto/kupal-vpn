@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "114425500576",
+    "project_id": "kupal-vpn-c60b9",
+    "storage_bucket": "kupal-vpn-c60b9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:114425500576:android:55744257f54f34d44e4ac5",
+        "android_client_info": {
+          "package_name": "com.kupalvpn.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAwa6bv_qkN_ADXBXhme-MNGvr-aYnMoqc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
