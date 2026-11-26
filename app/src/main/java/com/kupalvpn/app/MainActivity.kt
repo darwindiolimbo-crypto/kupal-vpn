@@ -306,6 +306,7 @@ private fun HomeScreen(
         serverSearch.isBlank() || listOf(item.name,item.protocol,item.host,item.country,item.carrier,item.payloadName)
             .any { it.contains(serverSearch.trim(), ignoreCase = true) }
     }
+    }
     val mobivpnPayloads = serverCatalog.items.filter { it.payloadTemplate.isNotBlank() }
     val mobivpnXrayItems = serverCatalog.items.filter { it.shareText.isNotBlank() || it.configJson.isNotBlank() }
 
