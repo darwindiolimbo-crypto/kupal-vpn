@@ -81,10 +81,21 @@ class AdsController(private val activity: Activity) {
         }
     }
 
+    private fun readableLoadError(kind: String, error: LoadAdError): String {
+        return when {
+            error.message.contains("HTTP response code: 403", ignoreCase = true) ->
+                "$kind ad request rejected by AdMob (HTTP 403). Check the app/ad-unit status in AdMob and retry later."
+            error.code == 3 ->
+                "$kind ad is not available right now (no fill). Please retry later."
+            else ->
+                "$kind ad unavailable (code ${error.code}): ${error.message}"
+        }
+    }
+
     fun reportBannerFailed(error: LoadAdError) {
         onMain {
-            bannerStatus = "Banner unavailable: ${error.message} (code ${error.code})"
-            android.util.Log.e("KupalVPN-Ads", bannerStatus)
+            bannerStatus = readableLoadError("Banner", error)
+            android.util.Log.e("KupalVPN-Ads", "$bannerStatus; responseInfo=${error.responseInfo}")
         }
     }
 
@@ -238,8 +249,8 @@ class AdsController(private val activity: Activity) {
                                 rewardedLoading = false
                                 rewardedAd = null
                                 rewardedReady = false
-                                lastStatus = "Rewarded ad unavailable: ${error.message} (code ${error.code}, domain ${error.domain}, response ${error.responseInfo}); retry scheduled"
-                                android.util.Log.e("KupalVPN-Ads", lastStatus)
+                                lastStatus = readableLoadError("Rewarded", error) + " Retry scheduled."
+                                android.util.Log.e("KupalVPN-Ads", "$lastStatus; domain=${error.domain}; responseInfo=${error.responseInfo}")
                                 scheduleRewardedRetry()
                             }
                         }
@@ -258,6 +269,55 @@ class AdsController(private val activity: Activity) {
 
     fun remainingMillis(): Long =
         runCatching { LocalStore.remainingAdCooldownMillis(activity) }.getOrDefault(0L)
+
+    /** Immediately retries the rewarded request without opening an ad. */
+    fun retryAds() {
+        onMain {
+            if (!LocalStore.adsEnabled(activity)) {
+                lastStatus = "Rewarded ads are paused in Settings"
+                return@onMain
+            }
+            if (!consentCanRequestAds) {
+                requestConsentAndInitialize()
+                lastStatus = "Checking advertising consent before retrying"
+                return@onMain
+            }
+            if (!initialized) {
+                requestConsentAndInitialize()
+                lastStatus = "Initializing AdMob before retrying"
+                return@onMain
+            }
+            mainHandler.removeCallbacks(rewardedRetry)
+            rewardedRetryDelayMs = 15_000L
+            rewardedAd = null
+            rewardedReady = false
+            rewardedLoading = false
+            loadRewardedAd()
+        }
+    }
+
+    /** Opens Google's in-app diagnostics; AdMob requires this device to be registered as a test device. */
+    fun openAdInspector() {
+        onMain {
+            if (!initialized) {
+                lastStatus = "AdMob is not initialized yet"
+                return@onMain
+            }
+            try {
+                MobileAds.openAdInspector(activity) { error ->
+                    onMain {
+                        lastStatus = if (error == null) {
+                            "Ad Inspector closed"
+                        } else {
+                            "Ad Inspector error: $error"
+                        }
+                    }
+                }
+            } catch (error: Throwable) {
+                lastStatus = "Could not open Ad Inspector: ${error.message ?: error.javaClass.simpleName}"
+            }
+        }
+    }
 
     fun tryShowRewardedAd(onReward: () -> Unit): String {
         if (Looper.myLooper() != Looper.getMainLooper()) {
