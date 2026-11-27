@@ -248,7 +248,15 @@ private fun KupalVpnApp(
             )
             "Config" -> ConfigScreen(padding = padding)
             "Logs" -> ConnectionLogsScreen(padding = padding)
-            else -> SettingsScreen(padding = padding)
+            else -> SettingsScreen(
+                padding = padding,
+                adsController = adsController,
+                adsEnabled = adsEnabled,
+                onAdsEnabledChange = {
+                    adsEnabled = it
+                    LocalStore.setAdsEnabled(context, it)
+                }
+            )
         }
     }
 }
@@ -282,7 +290,6 @@ private fun HomeScreen(
     onWatchAd: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var serverCatalog by remember { mutableStateOf(ServerCatalogStore.read(context)) }
     var payloadTemplates by remember { mutableStateOf(loadRemotePayloadTemplates(context)) }
     var checkingUpdates by remember { mutableStateOf(false) }
@@ -538,11 +545,6 @@ private fun HomeScreen(
                     }
                 }
             }
-            Button(
-                onClick = { scope.launch { checkForUpdates() } },
-                enabled = !checkingUpdates,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(if (checkingUpdates) "Updating lists…" else "Refresh server & config lists") }
             if (updateStatus.isNotBlank()) Text(updateStatus, color = if (updateStatus.contains("unavailable", true)) Color(0xFFFFD27A) else Green, fontSize = 10.sp)
             if (serverActionStatus.isNotBlank()) Text(serverActionStatus, color = if (serverActionStatus.contains("could not", true)) Color(0xFFFFD27A) else Green, fontSize = 11.sp)
             }
@@ -1037,9 +1039,107 @@ private fun ConnectionLogsScreen(padding: PaddingValues) {
 }
 
 @Composable
-private fun SettingsScreen(padding: PaddingValues) {
+private fun SettingsScreen(
+    padding: PaddingValues,
+    adsController: AdsController,
+    adsEnabled: Boolean,
+    onAdsEnabledChange: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var updatingConfig by rememberSaveable { mutableStateOf(false) }
+    var configUpdateStatus by rememberSaveable { mutableStateOf("Config has not been refreshed from Settings yet.") }
+    var configVersion by remember { mutableStateOf(RemoteConfigStore.read(context).optString("configVersion", "bundled")) }
+
     ScreenColumn(padding) {
         Text("Settings", fontSize = 23.sp, fontWeight = FontWeight.Bold)
+
+        SectionCard("Configuration updates") {
+            Text(
+                "Download the latest remote payload templates and refresh the server catalog.",
+                color = Color.LightGray,
+                fontSize = 12.sp
+            )
+            Text("Current config: $configVersion", color = Green, fontSize = 12.sp)
+            Button(
+                onClick = {
+                    if (!updatingConfig) {
+                        scope.launch {
+                            updatingConfig = true
+                            val messages = mutableListOf<String>()
+                            try {
+                                try {
+                                    messages += RemoteConfigStore.update(context)
+                                    configVersion = RemoteConfigStore.read(context).optString("configVersion", "latest")
+                                } catch (error: Exception) {
+                                    messages += "Config update unavailable: ${error.message ?: "network error"}"
+                                }
+                                try {
+                                    val catalog = ServerCatalogStore.refresh(context)
+                                    messages += "Server list refreshed: ${catalog.items.size} entries"
+                                } catch (error: Exception) {
+                                    messages += "Server list unavailable: ${error.message ?: "network error"}"
+                                }
+                                configUpdateStatus = messages.joinToString("  •  ")
+                            } finally {
+                                updatingConfig = false
+                            }
+                        }
+                    }
+                },
+                enabled = !updatingConfig,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (updatingConfig) "Updating config…" else "Update config")
+            }
+            Text(
+                configUpdateStatus,
+                color = if (configUpdateStatus.contains("unavailable", true)) Color(0xFFFFD27A) else Color.LightGray,
+                fontSize = 11.sp
+            )
+        }
+
+        SectionCard("Advertising") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Rewarded ads", fontWeight = FontWeight.SemiBold)
+                    Text(if (adsEnabled) "Ad loading is enabled" else "Ad loading is paused", color = Color.LightGray, fontSize = 11.sp)
+                }
+                Switch(checked = adsEnabled, onCheckedChange = onAdsEnabledChange)
+            }
+            Text("Rewarded: ${adsController.lastStatus}", color = Color.LightGray, fontSize = 11.sp)
+            Text("Banner: ${adsController.bannerStatus}", color = Color.LightGray, fontSize = 11.sp)
+            Button(
+                onClick = { adsController.retryAds() },
+                enabled = adsEnabled,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Retry rewarded ad loading") }
+            OutlinedButton(
+                onClick = { adsController.openAdInspector() },
+                enabled = adsController.adsReady,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Open Ad Inspector") }
+            if (adsController.privacyOptionsRequired) {
+                OutlinedButton(
+                    onClick = { adsController.showPrivacyOptions() },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Privacy options") }
+            }
+            Text(
+                "HTTP 403 means AdMob rejected the request. The app can retry and show diagnostics, but only AdMob can clear an account, app, or ad-serving restriction.",
+                color = Color(0xFFFFD27A),
+                fontSize = 11.sp
+            )
+            Text(
+                "Ad Inspector requires this phone to be registered as a test device in your AdMob account.",
+                color = Color.Gray,
+                fontSize = 10.sp
+            )
+        }
     }
 }
 private fun formatCountdown(milliseconds: Long): String {
