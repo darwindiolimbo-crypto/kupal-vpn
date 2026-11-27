@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 /** Accepts common compatible config JSON, share links and Base64 subscriptions. */
 object RemoteConfigStore {
     const val CONFIG_URL = "https://raw.githubusercontent.com/darwindiolimbo-crypto/kupal-vpn/main/config/kupalvpn-config.json"
+    private const val API_CONFIG_URL = "https://api.github.com/repos/darwindiolimbo-crypto/kupal-vpn/contents/config/kupalvpn-config.json?ref=main"
     const val EDIT_URL = "https://github.com/darwindiolimbo-crypto/kupal-vpn/edit/main/config/kupalvpn-config.json"
     private const val PREFS = "kupal_remote_config"
     private const val KEY_JSON = "cached_config_json"
@@ -80,34 +81,86 @@ object RemoteConfigStore {
         return d.takeIf { it.startsWith("{")||it.startsWith("[")||it.contains("://") }
     }
 
-    suspend fun update(context:Context):String = withContext(Dispatchers.IO) {
-        var connection:HttpURLConnection?=null
+    private fun readLimited(connection: HttpURLConnection): String {
+        val stream = connection.inputStream
+        return stream.use { input ->
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                total += n
+                require(total <= MAX_BYTES) { "Config response exceeds 512 KB" }
+                output.write(buffer, 0, n)
+            }
+            output.toByteArray().toString(Charsets.UTF_8)
+        }
+    }
+
+    private fun fetchText(url: String, accept: String): String {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15000
+            readTimeout = 15000
+            useCaches = false
+            instanceFollowRedirects = true
+            setRequestProperty("Accept", accept)
+            setRequestProperty("User-Agent", "KupalVPN-Android/1.0")
+        }
         try {
-            connection=(URL(CONFIG_URL).openConnection() as HttpURLConnection).apply {
-                requestMethod="GET"; connectTimeout=15000; readTimeout=15000; useCaches=false; instanceFollowRedirects=true
-                setRequestProperty("Accept","application/json,text/plain,*/*"); setRequestProperty("User-Agent","KupalVPN-Android")
+            val code = connection.responseCode
+            if (code != HttpURLConnection.HTTP_OK) {
+                val responseText = runCatching {
+                    connection.errorStream?.bufferedReader()?.use { it.readText().take(512) }
+                }.getOrNull().orEmpty()
+                error("HTTP $code from ${connection.url.host}" + if (responseText.isNotBlank()) ": $responseText" else "")
             }
-            val code=connection.responseCode
-            if(code!=HttpURLConnection.HTTP_OK) error("Config source returned HTTP "+code)
-            val body=connection.inputStream.use { input ->
-                val output=java.io.ByteArrayOutputStream(); val buffer=ByteArray(8192); var total=0
-                while(true) { val n=input.read(buffer); if(n<0) break; total+=n
-                    require(total<=MAX_BYTES) { "Config response exceeds 512 KB" }; output.write(buffer,0,n) }
-                output.toByteArray().toString(Charsets.UTF_8)
+            return readLimited(connection)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun fetchApiContent(): String {
+        val apiJson = JSONObject(fetchText(API_CONFIG_URL, "application/vnd.github+json"))
+        require(apiJson.optString("encoding") == "base64") {
+            "GitHub API config content is not Base64 encoded"
+        }
+        val encoded = apiJson.optString("content").replace("\\s".toRegex(), "")
+        require(encoded.isNotBlank()) { "GitHub API returned empty config content" }
+        return String(Base64.getDecoder().decode(encoded), Charsets.UTF_8)
+    }
+
+    suspend fun update(context:Context):String = withContext(Dispatchers.IO) {
+        val rawBody = try {
+            fetchText(CONFIG_URL, "application/json,text/plain,*/*")
+        } catch (primary: Exception) {
+            try {
+                fetchApiContent()
+            } catch (fallback: Exception) {
+                throw IllegalStateException(
+                    "Config download failed. Raw source: ${primary.message}. GitHub API fallback: ${fallback.message}",
+                    fallback
+                )
             }
-            val parsed=runCatching { JSONObject(body) }.getOrElse {
-                val decoded=decodeSubscription(body) ?: error("Unsupported config format: JSON, share link or Base64 subscription expected")
-                JSONObject().put("profiles",JSONArray().put(decoded))
+        }
+        try {
+            val parsed = runCatching { JSONObject(rawBody) }.getOrElse {
+                val decoded = decodeSubscription(rawBody) ?: error("Unsupported config format: JSON, share link or Base64 subscription expected")
+                JSONObject().put("profiles", JSONArray().put(decoded))
             }
-            val normalized=normalize(parsed)
-            val hasContent=normalized.getJSONArray("payloadTemplates").length()>0||normalized.getJSONArray("servers").length()>0||
-                normalized.getJSONArray("xrayProfiles").length()>0||normalized.getJSONArray("dnsPresets").length()>0
+            val normalized = normalize(parsed)
+            val hasContent = normalized.getJSONArray("payloadTemplates").length() > 0 ||
+                normalized.getJSONArray("servers").length() > 0 ||
+                normalized.getJSONArray("xrayProfiles").length() > 0 ||
+                normalized.getJSONArray("dnsPresets").length() > 0
             require(hasContent) { "Config JSON contains no supported payload, server, DNS or profile entries" }
-            check(context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit()
-                .putString(KEY_JSON,normalized.toString()).commit()) { "Unable to save config cache" }
-            "Updated config catalog ("+normalized.optString("configVersion","latest")+")"
-        } catch(error:Exception) {
-            throw IllegalStateException("Config update failed: "+(error.message ?: error.javaClass.simpleName),error)
-        } finally { connection?.disconnect() }
+            check(context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_JSON, normalized.toString()).commit()) { "Unable to save config cache" }
+            "Updated config catalog (${normalized.optString("configVersion", "latest")})"
+        } catch (error: Exception) {
+            throw IllegalStateException("Config update failed: ${error.message ?: error.javaClass.simpleName}", error)
+        }
     }
 }
