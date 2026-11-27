@@ -652,7 +652,7 @@ private fun HomeScreen(
 }
 }
 
-private const val HOME_BANNER_AD_UNIT_ID = "ca-app-pub-9471897591250086/8384504352"
+private const val HOME_BANNER_AD_UNIT_ID = "ca-app-pub-9471897591250086/8680614299"
 
 @Composable
 private fun HomeBannerAd(adsController: AdsController) {
